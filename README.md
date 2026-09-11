@@ -44,4 +44,4 @@ pygraph never calls `__reduce__`, `__setstate__`, or any arbitrary code during d
 
 ## License
 
-MIT
+AGPL-3.0-only
