@@ -37,7 +37,7 @@ jobs:
           args: --release --out dist
 
       - name: Install wheel
-        run: python -m pip install dist/*.whl
+        run: pip install dist/
 
       - name: Install test dependencies
         run: python -m pip install pytest hypothesis pytest-benchmark
