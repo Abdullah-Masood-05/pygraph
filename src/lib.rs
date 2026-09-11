@@ -3,6 +3,7 @@ use pyo3::types::*;
 
 mod format;
 mod graph;
+mod migration;
 
 use format::encoder;
 use format::decoder;

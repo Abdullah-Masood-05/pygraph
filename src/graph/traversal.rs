@@ -209,9 +209,14 @@ impl<'py> Walker<'py> {
             .map(|k| k.extract::<String>())
             .collect::<PyResult<_>>()?;
 
+        let schema_version: u32 = obj.getattr("__pygraph_version__")
+            .and_then(|v| v.extract())
+            .unwrap_or(0);
+
         let type_id = self.type_registry.register(
             type_name,
             &field_names.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            schema_version,
         );
 
         let id = self.graph.push_placeholder();

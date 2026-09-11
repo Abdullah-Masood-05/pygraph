@@ -25,6 +25,7 @@ pub fn encode(graph: &mut ObjectGraph, type_registry: &TypeRegistry) -> Vec<u8> 
         write_u16(&mut buf, id as u16);
         let name_idx = graph.string_index.get(&ti.name).copied().unwrap_or(0);
         write_u32(&mut buf, name_idx);
+        write_u32(&mut buf, ti.schema_version);
         write_u16(&mut buf, ti.fields.len() as u16);
         for fname in &ti.fields {
             let fidx = graph.string_index.get(fname).copied().unwrap_or(0);

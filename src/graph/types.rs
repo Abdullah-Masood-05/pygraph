@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub struct TypeInfo {
     pub name: String,
     pub fields: Vec<String>,
+    pub schema_version: u32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -17,7 +18,7 @@ impl TypeRegistry {
         Self::default()
     }
 
-    pub fn register(&mut self, name: &str, fields: &[&str]) -> u16 {
+    pub fn register(&mut self, name: &str, fields: &[&str], schema_version: u32) -> u16 {
         if let Some(&id) = self.name_to_id.get(name) {
             return id;
         }
@@ -25,6 +26,7 @@ impl TypeRegistry {
         self.types.push(TypeInfo {
             name: name.to_string(),
             fields: fields.iter().map(|s| s.to_string()).collect(),
+            schema_version,
         });
         self.name_to_id.insert(name.to_string(), id);
         id
@@ -46,17 +48,19 @@ mod tests {
     #[test]
     fn test_register_and_lookup() {
         let mut reg = TypeRegistry::new();
-        let id = reg.register("MyClass", &["x", "y"]);
+        let id = reg.register("MyClass", &["x", "y"], 1);
         assert_eq!(id, 0);
         assert_eq!(reg.get_id("MyClass"), Some(0));
-        assert_eq!(reg.get_type(0).unwrap().fields, vec!["x", "y"]);
+        let ti = reg.get_type(0).unwrap();
+        assert_eq!(ti.fields, vec!["x", "y"]);
+        assert_eq!(ti.schema_version, 1);
     }
 
     #[test]
     fn test_same_name_returns_same_id() {
         let mut reg = TypeRegistry::new();
-        let id1 = reg.register("Foo", &["a"]);
-        let id2 = reg.register("Foo", &["a"]);
+        let id1 = reg.register("Foo", &["a"], 1);
+        let id2 = reg.register("Foo", &["a"], 2);
         assert_eq!(id1, id2);
     }
 }

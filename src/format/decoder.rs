@@ -63,6 +63,9 @@ pub fn decode(data: &[u8]) -> PyResult<DecodedGraph> {
         let name_idx = read_u32(data, &mut offset).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("Invalid data: type name_idx truncated")
         })? as usize;
+        let schema_version = read_u32(data, &mut offset).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("Invalid data: schema_version truncated")
+        })?;
         let field_count = read_u16(data, &mut offset).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("Invalid data: field_count truncated")
         })?;
@@ -75,7 +78,7 @@ pub fn decode(data: &[u8]) -> PyResult<DecodedGraph> {
         }
         let name = strings.get(name_idx).cloned().unwrap_or_default();
         let field_refs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
-        type_registry.register(&name, &field_refs);
+        type_registry.register(&name, &field_refs, schema_version);
     }
 
     let obj_count = read_u32(data, &mut offset).ok_or_else(|| {
@@ -290,7 +293,6 @@ fn reconstruct_ref<'py>(
                 pyo3::exceptions::PyValueError::new_err(format!("Invalid type_id: {}", type_id))
             })?;
 
-            let _dataclasses = py.import("dataclasses")?;
             let make_dataclass = py.import("pygraph._reconstruct")?;
 
             let field_names: Vec<Bound<'py, PyString>> = ti
@@ -304,7 +306,6 @@ fn reconstruct_ref<'py>(
                 .iter()
                 .map(|f| reconstruct_ref(py, decoded, *f, memo))
                 .collect::<PyResult<_>>()?;
-            let _field_values_list = PyList::new(py, &field_values)?;
 
             let cls = make_dataclass.getattr("make_class")?.call1((
                 &ti.name,
@@ -317,8 +318,66 @@ fn reconstruct_ref<'py>(
             }
 
             let obj = cls.call((), Some(&kwargs))?;
-            memo.insert(ref_id, obj.clone());
-            obj
+
+            let serialized_version = ti.schema_version;
+            let current_version: u32 = obj.getattr("__pygraph_version__")
+                .and_then(|v| v.extract())
+                .unwrap_or(0);
+
+            if serialized_version > 0 && current_version > 0 && serialized_version != current_version {
+                let migrations_mod = py.import("pygraph.migrations")?;
+                let state_dict = pyo3::types::PyDict::new(py);
+                for (name, val) in ti.fields.iter().zip(field_values.iter()) {
+                    state_dict.set_item(name.as_str(), val)?;
+                }
+                state_dict.set_item("__pygraph_version__", serialized_version)?;
+
+                let migrated = migrations_mod.getattr("apply_migrations")?.call1((
+                    &ti.name,
+                    &state_dict,
+                    serialized_version,
+                    current_version,
+                ))?;
+
+                let migrated_bound = migrated.into_bound();
+                let migrated_dict: &Bound<'py, PyDict> = migrated_bound.downcast().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err("Migration function must return a dict")
+                })?;
+                let new_kwargs = pyo3::types::PyDict::new(py);
+                for item in migrated_dict.iter() {
+                    let key: String = item.0.extract()?;
+                    if key != "__pygraph_version__" {
+                        new_kwargs.set_item(&key, item.1)?;
+                    }
+                }
+
+                let new_obj = cls.call((), Some(&new_kwargs))?;
+
+                let extra = pyo3::types::PyDict::new(py);
+                let current_fields_bound = obj.getattr("__dataclass_fields__")?;
+                let current_fields: &Bound<'py, PyDict> = current_fields_bound.downcast().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err("__dataclass_fields__ is not a dict")
+                })?;
+                let current_field_names: Vec<String> = current_fields.keys().iter()
+                    .map(|k| k.extract())
+                    .collect::<PyResult<_>>()?;
+
+                for item in migrated_dict.iter() {
+                    let key: String = item.0.extract()?;
+                    if key != "__pygraph_version__" && !current_field_names.contains(&key) {
+                        extra.set_item(&key, item.1)?;
+                    }
+                }
+                if extra.len() > 0 {
+                    new_obj.setattr("__pygraph_extra__", extra)?;
+                }
+
+                memo.insert(ref_id, new_obj.clone());
+                new_obj
+            } else {
+                memo.insert(ref_id, obj.clone());
+                obj
+            }
         }
         Record::Reference(ref_id) => {
             return reconstruct_ref(py, decoded, *ref_id, memo);
