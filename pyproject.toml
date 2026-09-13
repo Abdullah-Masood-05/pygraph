@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pysafe-pickle"
-version = "1.0.0"
+version = "1.0.1"
 description = "Safe, fast, schema-evolvable Python object graph serialization powered by Rust"
 readme = "README.md"
 requires-python = ">=3.10"

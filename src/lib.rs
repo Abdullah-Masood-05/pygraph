@@ -11,7 +11,7 @@ use graph::traversal::Walker;
 
 #[pyfunction]
 fn __version() -> &'static str {
-    "1.0.0"
+    "1.0.1"
 }
 
 #[pyfunction]
@@ -108,6 +108,6 @@ fn _pygraph(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(loads, m)?)?;
     m.add_function(wrap_pyfunction!(dump, m)?)?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
-    m.add("__version__", "1.0.0")?;
+    m.add("__version__", "1.0.1")?;
     Ok(())
 }
