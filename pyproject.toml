@@ -3,7 +3,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "pygraph"
+name = "pysafe-pickle"
 version = "0.1.0"
 description = "Safe, fast, schema-evolvable Python object graph serialization powered by Rust"
 readme = "README.md"
