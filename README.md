@@ -1,4 +1,4 @@
-# pygraph
+# pysafe-pickle
 
 Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 
@@ -15,15 +15,15 @@ Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 ## Installation
 
 ```bash
-pip install pygraph
+pip install pysafe-pickle
 ```
 
 For tensor support:
 
 ```bash
-pip install pygraph[numpy]
-pip install pygraph[torch]
-pip install pygraph[all]
+pip install pysafe-pickle[numpy]
+pip install pysafe-pickle[torch]
+pip install pysafe-pickle[all]
 ```
 
 ## Quick Start
