@@ -10,7 +10,7 @@ name = "_pygraph"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"] }
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
 rayon = "1"
