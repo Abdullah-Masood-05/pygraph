@@ -31,7 +31,7 @@ def get_migrations(type_name: str) -> list[tuple[int, int, Callable]]:
     return _migration_registry.get(type_name, [])
 
 
-def get_migration_chain(type_name: str, from_version: int, to_version: int) -> list[tuple[int, int, Callable]]:
+def get_migration_chain(type_name: str, from_version: int, to_version: int) -> list[tuple[int, int, Callable[[dict], dict]]]:
     """Get the ordered migration chain from from_version to to_version."""
     all_migrations = _migration_registry.get(type_name, [])
     if from_version >= to_version:
