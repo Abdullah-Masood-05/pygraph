@@ -37,7 +37,7 @@ jobs:
           args: --release --out dist
 
       - name: Install wheel
-        run: pip install pygraph --find-links dist --no-index
+        run: pip install pysafe-pickle --find-links dist --no-index
 
       - name: Install test dependencies
         run: python -m pip install pytest hypothesis pytest-benchmark
