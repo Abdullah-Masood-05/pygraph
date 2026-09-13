@@ -91,7 +91,7 @@ result = unpickler.load()
 
 ## Security
 
-pygraph never calls `__reduce__`, `__setstate__`, or any arbitrary code during deserialization. Only allowlisted types can be loaded.
+pysafe-pickle never calls `__reduce__`, `__setstate__`, or any arbitrary code during deserialization. Only allowlisted types can be loaded.
 
 ```python
 # Restrict deserialization to specific types
@@ -100,7 +100,7 @@ pygraph.loads(data, allowlist={"builtins.dict", "builtins.list"})
 
 ## Allowlisted types
 
-By default, pygraph supports:
+By default, pysafe-pickle supports:
 
 | Type | Notes |
 |------|-------|
@@ -123,7 +123,7 @@ decoded = pygraph.loads(encoded, hmac_key=key)  # raises HMACError if tampered
 
 ## Benchmarks
 
-Run the benchmark suite to compare pygraph vs pickle:
+Run the benchmark suite to compare pysafe-pickle vs pickle:
 
 ```bash
 pytest benchmarks/ -v --benchmark-only
