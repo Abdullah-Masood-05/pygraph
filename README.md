@@ -29,14 +29,14 @@ pip install pysafe-pickle[all]
 ## Quick Start
 
 ```python
-import pygraph
+import pysafe_pickle as psp
 
 # Serialize
 data = {"key": "value", "numbers": [1, 2, 3]}
-encoded = pygraph.dumps(data)
+encoded = psp.dumps(data)
 
 # Deserialize
-decoded = pygraph.loads(encoded)
+decoded = psp.loads(encoded)
 assert decoded == data
 ```
 
@@ -46,27 +46,27 @@ Define versioned dataclasses and register migrations:
 
 ```python
 from dataclasses import dataclass
-import pygraph
+import pysafe_pickle as psp
 
 @dataclass
 class User:
     name: str
     age: int
     email: str = ""
-    __pygraph_version__ = 2
+    __pysafe_pickle_version__ = 2
 
-@pygraph.migrate(from_version=1, to_version=2, type_name="User")
+@psp.migrate(from_version=1, to_version=2, type_name="User")
 def migrate_v1_to_v2(state: dict) -> dict:
     """V1 had 'name' + 'age', V2 adds 'email'."""
     state["email"] = ""
-    state["__pygraph_version__"] = 2
+    state["__pysafe_pickle_version__"] = 2
     return state
 ```
 
 ### How it works
 
-- Set `__pygraph_version__` as a class attribute on your dataclass
-- Register migration functions with `@pygraph.migrate(from_version=N, to_version=M, type_name="ClassName")`
+- Set `__pysafe_pickle_version__` as a class attribute on your dataclass (legacy `__pygraph_version__` is also fully supported)
+- Register migration functions with `@psp.migrate(from_version=N, to_version=M, type_name="ClassName")`
 - Migration functions receive a `dict` of the old state and return a `dict` with the new state
 - Chains of migrations are resolved automatically (e.g., v1 → v2 → v3)
 
@@ -75,17 +75,17 @@ def migrate_v1_to_v2(state: dict) -> dict:
 Use pickle-compatible streaming classes:
 
 ```python
-import pygraph
+import pysafe_pickle as psp
 import io
 
 # Streaming dump
 buf = io.BytesIO()
-pickler = pygraph.Pickler(buf, protocol=5)
+pickler = psp.Pickler(buf, protocol=5)
 pickler.dump({"data": [1, 2, 3]})
 
 # Streaming load
 buf.seek(0)
-unpickler = pygraph.Unpickler(buf)
+unpickler = psp.Unpickler(buf)
 result = unpickler.load()
 ```
 
@@ -95,7 +95,7 @@ pysafe-pickle never calls `__reduce__`, `__setstate__`, or any arbitrary code du
 
 ```python
 # Restrict deserialization to specific types
-pygraph.loads(data, allowlist={"builtins.dict", "builtins.list"})
+psp.loads(data, allowlist={"builtins.dict", "builtins.list"})
 ```
 
 ## Allowlisted types
@@ -117,8 +117,26 @@ Any type not in this list raises `UnsafeTypeError` unless added to the allowlist
 
 ```python
 key = b"my-secret-key"
-encoded = pygraph.dumps(data, hmac_key=key)
-decoded = pygraph.loads(encoded, hmac_key=key)  # raises HMACError if tampered
+encoded = psp.dumps(data, hmac_key=key)
+decoded = psp.loads(encoded, hmac_key=key)  # raises HMACError if tampered
+```
+
+## Migration from v1.0.x (`pygraph`)
+
+In v1.0.x, the package was imported as `import pygraph`. In v1.1.0:
+- The canonical import is now `import pysafe_pickle as psp`.
+- **Zero code breaks**: Existing code using `import pygraph` or `from pygraph.migrations import migrate` continues working identically via a backward-compatible shim, emitting a `FutureWarning`.
+- **Binary compatibility**: Files serialized with v1.0.x (magic `PYGR`) continue to deserialize seamlessly with zero warnings. New files are encoded with the `PSPK` magic header.
+- The `pygraph` shim will remain supported through v1.x and will be removed in v2.0.0.
+
+```python
+# Legacy (deprecated in v1.1.0, emits warning, still works)
+import pygraph
+pygraph.dumps(data)
+
+# Recommended
+import pysafe_pickle as psp
+psp.dumps(data)
 ```
 
 ## Benchmarks
@@ -126,21 +144,18 @@ decoded = pygraph.loads(encoded, hmac_key=key)  # raises HMACError if tampered
 Run the benchmark suite to compare pysafe-pickle vs pickle:
 
 ```bash
-pytest benchmarks/ -v --benchmark-only
+uv run pytest benchmarks/ -v --benchmark-only
 ```
 
 ## Development
 
 ```bash
-# Install dev tools
-pip install -e ".[dev]"
-
-# Build the Rust extension
-maturin develop
+# Install and build with uv / maturin
+uv run maturin develop
 
 # Run tests
 cargo nextest run
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## License
