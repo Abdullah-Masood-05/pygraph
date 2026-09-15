@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pysafe-pickle"
-version = "1.0.1"
+version = "1.1.0"
 description = "Safe, fast, schema-evolvable Python object graph serialization powered by Rust"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,4 +37,4 @@ dev = ["pytest", "hypothesis", "pytest-benchmark"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "pygraph._pygraph"
+module-name = "pysafe_pickle._pysafe_pickle"
