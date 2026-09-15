@@ -1,11 +1,15 @@
-class PyGraphError(Exception):
-    """Base exception for all pygraph errors."""
+from pysafe_pickle.exceptions import (
+    PySafePickleError,
+    PyGraphError,
+    UnsafeTypeError,
+    SchemaVersionError,
+    HMACError,
+)
 
-class UnsafeTypeError(PyGraphError):
-    """Raised when an unallowlisted type is encountered during deserialization."""
-
-class SchemaVersionError(PyGraphError):
-    """Raised when schema version mismatch cannot be resolved."""
-
-class HMACError(PyGraphError):
-    """Raised when HMAC verification fails (data tampering detected)."""
+__all__ = [
+    "PySafePickleError",
+    "PyGraphError",
+    "UnsafeTypeError",
+    "SchemaVersionError",
+    "HMACError",
+]
