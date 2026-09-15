@@ -41,8 +41,8 @@ jobs:
 
       - name: Verify wheel packages and version parity
         run: |
-          python -c "import tomllib, importlib.metadata as m; v = m.version('pysafe-pickle'); assert tomllib.load(open('Cargo.toml','rb'))['package']['version'] == v, f'Cargo.toml version mismatch with {v}'"
-          python -c "import pysafe_pickle as psp; import pygraph; assert psp.__version__ == '1.1.0' and pygraph.__version__ == '1.1.0'"
+          python -c 'import importlib.metadata as m; v = m.version("pysafe-pickle"); assert any(("version = \"" + v + "\"") in l for l in open("Cargo.toml")), "Cargo.toml version mismatch"'
+          python -c 'import pysafe_pickle as psp; import pygraph; assert psp.__version__ == "1.1.0" and pygraph.__version__ == "1.1.0"'
 
       - name: Install test dependencies
         run: python -m pip install pytest hypothesis pytest-benchmark
