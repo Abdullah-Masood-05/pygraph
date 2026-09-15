@@ -8,7 +8,7 @@ import pytest
 
 class TestVersion:
     def test_version(self):
-        assert pygraph.__version__ == "1.0.1"
+        assert pygraph.__version__ == "1.1.0"
 
     def test_imports(self):
         assert hasattr(pygraph, "dumps")
