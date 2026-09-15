@@ -37,4 +37,5 @@ dev = ["pytest", "hypothesis", "pytest-benchmark"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
+python-packages = ["pysafe_pickle", "pygraph"]
 module-name = "pysafe_pickle._pysafe_pickle"
