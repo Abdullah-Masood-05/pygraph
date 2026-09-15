@@ -1,7 +1,10 @@
 pub mod encoder;
 pub mod decoder;
 
-pub const MAGIC: &[u8; 4] = b"PYGR";
+pub const MAGIC_WRITE: &[u8; 4] = b"PSPK";
+pub const MAGIC_LEGACY: &[u8; 4] = b"PYGR";
+#[allow(dead_code)]
+pub const MAGIC: &[u8; 4] = MAGIC_WRITE;
 pub const FORMAT_VERSION: u16 = 1;
 pub const SCHEMA_VERSION: u32 = 0;
 pub const FLAG_HMAC: u8 = 1 << 0;
@@ -49,7 +52,7 @@ impl Tag {
 }
 
 pub fn write_header(buf: &mut Vec<u8>, flags: u8) {
-    buf.extend_from_slice(MAGIC);
+    buf.extend_from_slice(MAGIC_WRITE);
     buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     buf.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
     buf.push(flags);
@@ -154,7 +157,7 @@ mod tests {
     fn test_header_roundtrip() {
         let mut buf = Vec::new();
         write_header(&mut buf, FLAG_HMAC);
-        assert_eq!(&buf[0..4], MAGIC);
+        assert_eq!(&buf[0..4], MAGIC_WRITE);
         assert_eq!(u16::from_le_bytes(buf[4..6].try_into().unwrap()), FORMAT_VERSION);
         assert_eq!(u32::from_le_bytes(buf[6..10].try_into().unwrap()), SCHEMA_VERSION);
         assert_eq!(buf[10], FLAG_HMAC);

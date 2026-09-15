@@ -209,7 +209,9 @@ impl<'py> Walker<'py> {
             .map(|k| k.extract::<String>())
             .collect::<PyResult<_>>()?;
 
-        let schema_version: u32 = obj.getattr("__pygraph_version__")
+        let schema_version: u32 = obj
+            .getattr("__pysafe_pickle_version__")
+            .or_else(|_| obj.getattr("__pygraph_version__"))
             .and_then(|v| v.extract())
             .unwrap_or(0);
 

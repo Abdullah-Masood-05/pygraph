@@ -21,7 +21,7 @@ pub fn decode(data: &[u8]) -> PyResult<DecodedGraph> {
     magic.copy_from_slice(read_bytes(data, &mut offset, 4).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err("Invalid data: too short for header")
     })?);
-    if &magic != MAGIC {
+    if &magic != MAGIC_WRITE && &magic != MAGIC_LEGACY {
         return Err(pyo3::exceptions::PyValueError::new_err("Invalid magic bytes"));
     }
 
@@ -293,7 +293,9 @@ fn reconstruct_ref<'py>(
                 pyo3::exceptions::PyValueError::new_err(format!("Invalid type_id: {}", type_id))
             })?;
 
-            let make_dataclass = py.import("pygraph._reconstruct")?;
+            let make_dataclass = py
+                .import("pysafe_pickle._reconstruct")
+                .or_else(|_| py.import("pygraph._reconstruct"))?;
 
             let field_names: Vec<Bound<'py, PyString>> = ti
                 .fields
@@ -320,16 +322,21 @@ fn reconstruct_ref<'py>(
             let obj = cls.call((), Some(&kwargs))?;
 
             let serialized_version = ti.schema_version;
-            let current_version: u32 = obj.getattr("__pygraph_version__")
+            let current_version: u32 = obj
+                .getattr("__pysafe_pickle_version__")
+                .or_else(|_| obj.getattr("__pygraph_version__"))
                 .and_then(|v| v.extract())
                 .unwrap_or(0);
 
             if serialized_version > 0 && current_version > 0 && serialized_version != current_version {
-                let migrations_mod = py.import("pygraph.migrations")?;
+                let migrations_mod = py
+                    .import("pysafe_pickle.migrations")
+                    .or_else(|_| py.import("pygraph.migrations"))?;
                 let state_dict = pyo3::types::PyDict::new(py);
                 for (name, val) in ti.fields.iter().zip(field_values.iter()) {
                     state_dict.set_item(name.as_str(), val)?;
                 }
+                state_dict.set_item("__pysafe_pickle_version__", serialized_version)?;
                 state_dict.set_item("__pygraph_version__", serialized_version)?;
 
                 let migrated = migrations_mod.getattr("apply_migrations")?.call1((
@@ -346,7 +353,7 @@ fn reconstruct_ref<'py>(
                 let new_kwargs = pyo3::types::PyDict::new(py);
                 for item in migrated_dict.iter() {
                     let key: String = item.0.extract()?;
-                    if key != "__pygraph_version__" {
+                    if key != "__pysafe_pickle_version__" && key != "__pygraph_version__" {
                         new_kwargs.set_item(&key, item.1)?;
                     }
                 }
@@ -364,12 +371,13 @@ fn reconstruct_ref<'py>(
 
                 for item in migrated_dict.iter() {
                     let key: String = item.0.extract()?;
-                    if key != "__pygraph_version__" && !current_field_names.contains(&key) {
+                    if key != "__pysafe_pickle_version__" && key != "__pygraph_version__" && !current_field_names.contains(&key) {
                         extra.set_item(&key, item.1)?;
                     }
                 }
                 if extra.len() > 0 {
-                    new_obj.setattr("__pygraph_extra__", extra)?;
+                    let _ = new_obj.setattr("__pysafe_pickle_extra__", &extra);
+                    let _ = new_obj.setattr("__pygraph_extra__", extra);
                 }
 
                 memo.insert(ref_id, new_obj.clone());
