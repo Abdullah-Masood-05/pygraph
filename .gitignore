@@ -24,3 +24,8 @@ Cargo.lock
 .idea/
 *.swp
 *.swo
+
+# Documentation
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

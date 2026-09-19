@@ -1,0 +1,18 @@
+{
+  "name": "pysafe-pickle-docs",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "bunx vitepress dev",
+    "docs:build": "bunx vitepress build",
+    "docs:preview": "bunx vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.0",
+    "vitepress-plugin-mermaid": "^2.0.17",
+    "mermaid": "^11.0.0",
+    "vue": "^3.5.0",
+    "typescript": "~5.8.0"
+  }
+}

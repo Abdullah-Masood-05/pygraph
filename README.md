@@ -2,6 +2,12 @@
 
 Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 
+[![Documentation](https://img.shields.io/badge/docs-website-10b981?style=flat-square&logo=vitepress)](https://abdullah-masood-05.github.io/pygraph/)
+[![PyPI](https://img.shields.io/pypi/v/pysafe-pickle?style=flat-square)](https://pypi.org/project/pysafe-pickle/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
+
+📖 **Documentation**: [https://abdullah-masood-05.github.io/pygraph/](https://abdullah-masood-05.github.io/pygraph/)
+
 ## Features
 
 - **Drop-in pickle API** — `dumps`/`loads`/`dump`/`load` with the same signatures
