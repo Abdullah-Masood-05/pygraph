@@ -3,7 +3,7 @@ import { withMermaid } from 'vitepress-plugin-mermaid';
 
 export default withMermaid(
   defineConfig({
-    title: 'pysafe-pickle',
+    title: 'Pysafe Pickle',
     description:
       'Safe, fast, schema-evolvable Python object graph serialization powered by Rust.',
     base: '/pygraph/',
@@ -12,7 +12,7 @@ export default withMermaid(
     head: [
       ['link', { rel: 'icon', type: 'image/svg+xml', href: '/pygraph/logo.svg' }],
       ['meta', { name: 'theme-color', content: '#10b981' }],
-      ['meta', { property: 'og:title', content: 'pysafe-pickle Documentation' }],
+      ['meta', { property: 'og:title', content: 'Pysafe Pickle Documentation' }],
       [
         'meta',
         {

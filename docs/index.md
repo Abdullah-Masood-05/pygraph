@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "pysafe-pickle"
+  name: "Pysafe Pickle"
   text: "Safe, Fast, Schema-Evolvable Object Graph Serialization"
   tagline: "Powered by Rust. Zero arbitrary code execution. Drop-in pickle API."
   image:
