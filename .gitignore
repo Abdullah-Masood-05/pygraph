@@ -29,3 +29,8 @@ Cargo.lock
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+
+# Tests & Benchmarks
+.pytest_cache/
+.benchmarks/
+

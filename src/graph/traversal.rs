@@ -60,19 +60,41 @@ pub struct Walker<'py> {
     memo: HashMap<usize, u32>,
     graph: ObjectGraph,
     type_registry: TypeRegistry,
+    pinned_objects: Vec<Py<PyAny>>,
+    max_depth: usize,
 }
 
 impl<'py> Walker<'py> {
     pub fn new(py: Python<'py>) -> Self {
+        let sys_limit: usize = py
+            .import("sys")
+            .and_then(|sys| sys.getattr("getrecursionlimit"))
+            .and_then(|func| func.call0())
+            .and_then(|res| res.extract())
+            .unwrap_or(1000);
+        let max_depth = sys_limit.min(250);
+
         Self {
             py,
             memo: HashMap::new(),
             graph: ObjectGraph::new(),
             type_registry: TypeRegistry::new(),
+            pinned_objects: Vec::new(),
+            max_depth,
         }
     }
 
     pub fn walk(&mut self, obj: &Bound<'py, PyAny>) -> PyResult<u32> {
+        self.walk_inner(obj, 0)
+    }
+
+    fn walk_inner(&mut self, obj: &Bound<'py, PyAny>, depth: usize) -> PyResult<u32> {
+        if depth >= self.max_depth {
+            return Err(pyo3::exceptions::PyRecursionError::new_err(
+                "maximum recursion depth exceeded in serialization",
+            ));
+        }
+
         let ptr = obj.as_ptr() as usize;
         if let Some(&ref_id) = self.memo.get(&ptr) {
             let id = self.graph.push_placeholder();
@@ -88,6 +110,7 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::None);
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "bool" => {
@@ -95,6 +118,7 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::Bool(val));
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "int" => {
@@ -102,6 +126,7 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::Int(val));
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "float" => {
@@ -109,6 +134,7 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::Float(val));
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "str" => {
@@ -117,6 +143,7 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::String(idx));
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "bytes" => {
@@ -124,16 +151,18 @@ impl<'py> Walker<'py> {
                 let id = self.graph.push_placeholder();
                 self.graph.set_record(id, Record::Bytes(val));
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
                 Ok(id)
             }
             "list" => {
                 let list = obj.downcast::<PyList>()?;
                 let id = self.graph.push_placeholder();
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
 
                 let mut refs = Vec::with_capacity(list.len());
                 for item in list.iter() {
-                    refs.push(self.walk(&item)?);
+                    refs.push(self.walk_inner(&item, depth + 1)?);
                 }
                 self.graph.set_record(id, Record::List(refs));
                 Ok(id)
@@ -142,10 +171,11 @@ impl<'py> Walker<'py> {
                 let tup = obj.downcast::<PyTuple>()?;
                 let id = self.graph.push_placeholder();
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
 
                 let mut refs = Vec::with_capacity(tup.len());
                 for item in tup.iter() {
-                    refs.push(self.walk(&item)?);
+                    refs.push(self.walk_inner(&item, depth + 1)?);
                 }
                 self.graph.set_record(id, Record::Tuple(refs));
                 Ok(id)
@@ -154,11 +184,12 @@ impl<'py> Walker<'py> {
                 let dict = obj.downcast::<PyDict>()?;
                 let id = self.graph.push_placeholder();
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
 
                 let mut pairs = Vec::with_capacity(dict.len());
                 for (k, v) in dict.iter() {
-                    let kr = self.walk(&k)?;
-                    let vr = self.walk(&v)?;
+                    let kr = self.walk_inner(&k, depth + 1)?;
+                    let vr = self.walk_inner(&v, depth + 1)?;
                     pairs.push((kr, vr));
                 }
                 self.graph.set_record(id, Record::Dict(pairs));
@@ -168,10 +199,11 @@ impl<'py> Walker<'py> {
                 let set = obj.downcast::<PySet>()?;
                 let id = self.graph.push_placeholder();
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
 
                 let mut refs = Vec::with_capacity(set.len());
                 for item in set.iter() {
-                    refs.push(self.walk(&item)?);
+                    refs.push(self.walk_inner(&item, depth + 1)?);
                 }
                 self.graph.set_record(id, Record::Set(refs));
                 Ok(id)
@@ -180,17 +212,18 @@ impl<'py> Walker<'py> {
                 let fs = obj.downcast::<PyFrozenSet>()?;
                 let id = self.graph.push_placeholder();
                 self.memo.insert(ptr, id);
+                self.pinned_objects.push(obj.clone().unbind());
 
                 let mut refs = Vec::with_capacity(fs.len());
                 for item in fs.iter() {
-                    refs.push(self.walk(&item)?);
+                    refs.push(self.walk_inner(&item, depth + 1)?);
                 }
                 self.graph.set_record(id, Record::FrozenSet(refs));
                 Ok(id)
             }
             _ => {
                 if is_dataclass(self.py, obj)? {
-                    self.walk_dataclass(obj, &type_name, ptr)
+                    self.walk_dataclass(obj, &type_name, ptr, depth)
                 } else {
                     Err(pyo3::exceptions::PyTypeError::new_err(format!(
                         "Unsupported type: {}",
@@ -201,8 +234,15 @@ impl<'py> Walker<'py> {
         }
     }
 
-    fn walk_dataclass(&mut self, obj: &Bound<'py, PyAny>, type_name: &str, ptr: usize) -> PyResult<u32> {
-        let fields_dict: Bound<'py, PyDict> = obj.getattr("__dataclass_fields__")?.downcast_into()?;
+    fn walk_dataclass(
+        &mut self,
+        obj: &Bound<'py, PyAny>,
+        type_name: &str,
+        ptr: usize,
+        depth: usize,
+    ) -> PyResult<u32> {
+        let fields_dict: Bound<'py, PyDict> =
+            obj.getattr("__dataclass_fields__")?.downcast_into()?;
         let field_names: Vec<String> = fields_dict
             .keys()
             .iter()
@@ -223,11 +263,12 @@ impl<'py> Walker<'py> {
 
         let id = self.graph.push_placeholder();
         self.memo.insert(ptr, id);
+        self.pinned_objects.push(obj.clone().unbind());
 
         let mut field_refs = Vec::with_capacity(field_names.len());
         for fname in &field_names {
             let val = obj.getattr(fname.as_str())?;
-            field_refs.push(self.walk(&val)?);
+            field_refs.push(self.walk_inner(&val, depth + 1)?);
         }
         self.graph
             .set_record(id, Record::Dataclass { type_id, fields: field_refs });
