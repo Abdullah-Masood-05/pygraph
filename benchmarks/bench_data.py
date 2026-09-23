@@ -1,6 +1,6 @@
 """Benchmarks comparing pygraph vs pickle performance."""
 import pickle
-import pygraph
+import pysafe_pickle as psp
 from dataclasses import dataclass
 
 
