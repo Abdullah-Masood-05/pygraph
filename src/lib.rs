@@ -23,13 +23,24 @@ fn dumps(
     schema_version: Option<u32>,
     hmac_key: Option<&[u8]>,
 ) -> PyResult<PyObject> {
-    let _ = (protocol, schema_version, hmac_key);
+    if protocol != 5 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported protocol {}; only protocol 5 is supported",
+            protocol
+        )));
+    }
+    if hmac_key.is_some() {
+        return Err(pyo3::exceptions::PyNotImplementedError::new_err(
+            "HMAC signatures are not yet supported",
+        ));
+    }
+    let _ = schema_version;
 
     let mut walker = Walker::new(py);
     let _root_id = walker.walk(obj)?;
     let (mut graph, type_registry) = walker.into_parts();
 
-    let encoded = encoder::encode(&mut graph, &type_registry);
+    let encoded = py.allow_threads(|| encoder::encode(&mut graph, &type_registry));
 
     Ok(PyBytes::new(py, &encoded).into())
 }
@@ -42,21 +53,16 @@ fn loads(
     allowlist: Option<&Bound<'_, PySet>>,
 ) -> PyResult<PyObject> {
     let bytes = data.as_bytes();
-    let decoded = decoder::decode(bytes)?;
+    let decoded = py.allow_threads(|| decoder::decode(bytes))?;
 
     if let Some(al) = allowlist {
-        for record in &decoded.records {
-            if let crate::graph::traversal::Record::Dataclass { type_id, .. } = record {
-                let ti = decoded.type_registry.get_type(*type_id).ok_or_else(|| {
-                    pyo3::exceptions::PyValueError::new_err(format!("Unknown type_id: {}", type_id))
-                })?;
-                let type_str = PyString::new(py, &ti.name);
-                if !al.contains(&type_str)? {
-                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                        "Type '{}' is not in the allowlist",
-                        ti.name
-                    )));
-                }
+        for ti in &decoded.type_registry.types {
+            let type_str = PyString::new(py, &ti.name);
+            if !al.contains(&type_str)? {
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Type '{}' is not in the allowlist",
+                    ti.name
+                )));
             }
         }
     }
@@ -79,7 +85,7 @@ fn dump(
     let _root_id = walker.walk(obj)?;
     let (mut graph, type_registry) = walker.into_parts();
 
-    let encoded = encoder::encode(&mut graph, &type_registry);
+    let encoded = py.allow_threads(|| encoder::encode(&mut graph, &type_registry));
 
     let write_method = file.getattr("write")?;
     write_method.call1((PyBytes::new(py, &encoded),))?;

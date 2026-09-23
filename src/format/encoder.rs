@@ -3,16 +3,21 @@ use crate::graph::types::TypeRegistry;
 use super::*;
 
 pub fn encode(graph: &mut ObjectGraph, type_registry: &TypeRegistry) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(256);
-
-    write_header(&mut buf, 0);
-
     for ti in &type_registry.types {
         graph.intern_string(&ti.name);
         for fname in &ti.fields {
             graph.intern_string(fname);
         }
     }
+
+    let estimated_bytes = 11
+        + 4 + (graph.strings.len() * 16)
+        + 4 + (type_registry.types.len() * 24)
+        + 4 + (graph.records.len() * 8);
+
+    let mut buf = Vec::with_capacity(estimated_bytes.max(256));
+
+    write_header(&mut buf, 0);
 
     write_u32(&mut buf, graph.strings.len() as u32);
     for s in &graph.strings {
@@ -33,9 +38,11 @@ pub fn encode(graph: &mut ObjectGraph, type_registry: &TypeRegistry) -> Vec<u8> 
         }
     }
 
-    let valid_records: Vec<&Record> = graph.records.iter().filter_map(|r| r.as_ref()).collect();
-    write_u32(&mut buf, valid_records.len() as u32);
-    for record in valid_records {
+    write_u32(&mut buf, graph.records.len() as u32);
+    for opt in &graph.records {
+        let record = opt
+            .as_ref()
+            .expect("Corrupted object graph: unset placeholder found");
         encode_record(&mut buf, record);
     }
 

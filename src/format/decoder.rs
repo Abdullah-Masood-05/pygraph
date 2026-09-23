@@ -300,7 +300,6 @@ enum WorkItem<'py> {
         depth: usize,
     },
     FinishList {
-        ref_id: u32,
         list: Bound<'py, PyList>,
         count: usize,
     },
@@ -309,12 +308,10 @@ enum WorkItem<'py> {
         count: usize,
     },
     FinishDict {
-        ref_id: u32,
         dict: Bound<'py, PyDict>,
         count: usize,
     },
     FinishSet {
-        ref_id: u32,
         set: Bound<'py, PySet>,
         count: usize,
     },
@@ -426,7 +423,6 @@ pub fn reconstruct<'py>(
                         let list = PyList::empty(py);
                         memo.insert(ref_id, list.clone().into_any());
                         work_stack.push(WorkItem::FinishList {
-                            ref_id,
                             list,
                             count: refs.len(),
                         });
@@ -454,7 +450,6 @@ pub fn reconstruct<'py>(
                         let dict = PyDict::new(py);
                         memo.insert(ref_id, dict.clone().into_any());
                         work_stack.push(WorkItem::FinishDict {
-                            ref_id,
                             dict,
                             count: pairs.len(),
                         });
@@ -473,7 +468,6 @@ pub fn reconstruct<'py>(
                         let set = PySet::empty(py)?;
                         memo.insert(ref_id, set.clone().into_any());
                         work_stack.push(WorkItem::FinishSet {
-                            ref_id,
                             set,
                             count: refs.len(),
                         });
