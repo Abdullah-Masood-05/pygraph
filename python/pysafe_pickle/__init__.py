@@ -6,7 +6,7 @@ except PackageNotFoundError:
     try:
         from pysafe_pickle._pysafe_pickle import __version__
     except ImportError:
-        __version__ = "1.1.0"
+        __version__ = "1.2.0"
 
 from pysafe_pickle._pysafe_pickle import dumps, loads, dump, load
 from pysafe_pickle.exceptions import (

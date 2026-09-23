@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pysafe-pickle"
-version = "1.1.0"
+version = "1.2.0"
 description = "Safe, fast, schema-evolvable Python object graph serialization powered by Rust"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,9 +29,6 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-numpy = ["numpy>=1.20"]
-torch = ["torch>=1.10"]
-all = ["numpy>=1.20", "torch>=1.10"]
 dev = ["pytest", "hypothesis", "pytest-benchmark"]
 
 [tool.maturin]

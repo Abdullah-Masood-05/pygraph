@@ -51,10 +51,10 @@ def test_recursion_depth_limit_deserialization():
         psp.loads(payload)
 
 def test_recursion_depth_limit_serialization():
-    # Deeply nested list exceeding safe recursion limit
+    # Deeply nested list exceeding recursion limit
     curr = []
     root = curr
-    for _ in range(300):
+    for _ in range(sys.getrecursionlimit() + 10):
         nested = []
         curr.append(nested)
         curr = nested

@@ -1,6 +1,6 @@
 [package]
 name = "pysafe-pickle"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "Safe, fast, schema-evolvable Python object graph serialization powered by Rust"
 license = "AGPL-3.0-only"
@@ -11,25 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"] }
-serde = { version = "1", features = ["derive"] }
-bincode = "1"
-rayon = "1"
-hmac = "0.12"
-sha2 = "0.10"
-
-[dependencies.numpy]
-version = "0.24"
-optional = true
-
-[dependencies.tch]
-version = "0.24"
-optional = true
-
-[features]
-default = []
-numpy = ["dep:numpy"]
-torch = ["dep:tch"]
-all-tensors = ["numpy", "torch"]
+rustc-hash = "2"
 
 [profile.release]
 lto = true
