@@ -27,6 +27,10 @@ pub enum Tag {
     FrozenSet = 0x0C,
     Dataclass = 0x0D,
     Reference = 0x0E,
+    BigInt = 0x0F,
+    ByteArray = 0x10,
+    Complex = 0x11,
+    StrRaw = 0x12,
 }
 
 impl Tag {
@@ -46,6 +50,10 @@ impl Tag {
             0x0C => Some(Tag::FrozenSet),
             0x0D => Some(Tag::Dataclass),
             0x0E => Some(Tag::Reference),
+            0x0F => Some(Tag::BigInt),
+            0x10 => Some(Tag::ByteArray),
+            0x11 => Some(Tag::Complex),
+            0x12 => Some(Tag::StrRaw),
             _ => None,
         }
     }
