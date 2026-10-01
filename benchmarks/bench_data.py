@@ -72,6 +72,36 @@ def make_mixed_container():
     }
 
 
+def make_list_of_records(n=1000):
+    return [
+        {"id": i, "name": f"user{i}", "score": i * 1.5, "active": i % 2 == 0, "tags": ["a", "b"]}
+        for i in range(n)
+    ]
+
+
+def make_list_of_dataclasses(n=1000):
+    return [
+        Person(f"user{i}", 20 + i % 60, Address(f"{i} Main St", "Springfield", f"{10000 + i}"))
+        for i in range(n)
+    ]
+
+
+def make_ints(n=10_000):
+    return list(range(-n // 2, n // 2))
+
+
+def make_floats(n=10_000):
+    return [i * 0.1 for i in range(n)]
+
+
+def make_short_strings(n=10_000):
+    return [f"s{i}" for i in range(n)]
+
+
+def make_bytes(n=1024 * 1024):
+    return bytes(range(256)) * (n // 256)
+
+
 BENCHMARK_DATA = {
     "primitives": make_primitives,
     "nested_list_depth5": lambda: make_nested_list(5),
@@ -83,4 +113,10 @@ BENCHMARK_DATA = {
     "complex_graph": make_complex_graph,
     "large_string_100k": lambda: make_large_string(100_000),
     "mixed_container": make_mixed_container,
+    "list_of_records_1000": lambda: make_list_of_records(1000),
+    "list_of_dataclasses_1000": lambda: make_list_of_dataclasses(1000),
+    "ints_10000": lambda: make_ints(10_000),
+    "floats_10000": lambda: make_floats(10_000),
+    "short_strings_10000": lambda: make_short_strings(10_000),
+    "bytes_1mb": lambda: make_bytes(1024 * 1024),
 }
