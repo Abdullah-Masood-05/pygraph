@@ -7,7 +7,10 @@ pub const MAGIC_LEGACY: &[u8; 4] = b"PYGR";
 pub const MAGIC: &[u8; 4] = MAGIC_WRITE;
 pub const FORMAT_VERSION: u16 = 1;
 pub const SCHEMA_VERSION: u32 = 0;
+// Reserved for future use; suppress dead_code until HMAC/compression land.
+#[allow(dead_code)]
 pub const FLAG_HMAC: u8 = 1 << 0;
+#[allow(dead_code)]
 pub const FLAG_COMPRESSED: u8 = 1 << 1;
 
 #[repr(u8)]
