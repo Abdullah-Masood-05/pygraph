@@ -8,13 +8,34 @@ Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 
 📖 **Documentation**: [https://abdullah-masood-05.github.io/pygraph/](https://abdullah-masood-05.github.io/pygraph/)
 
+## What's New in v1.3.0
+
+### Performance
+- **Faster than pickle** — `dumps` is now faster than stdlib `pickle` on every benchmark shape; `loads` is on par or faster for most workloads
+- Dataclass serialization is **6x faster** (dumps) and **22x faster** (loads) for bulk dataclass payloads
+- String-heavy payloads serialize **2x faster**
+
+### New Type Support
+- Arbitrary-precision integers (`2**100`, `10**1000`, etc.)
+- `bytearray` (with identity/cycle preservation)
+- `complex` numbers
+- Strings with lone surrogates (`"\ud800"`)
+
+### Bug Fixes
+- Dataclass self-referential cycles now load correctly
+- `ClassVar` and `InitVar` fields are no longer incorrectly serialized
+- Two dataclasses sharing a class name no longer corrupt each other's fields
+- Fields named `self` no longer break deserialization
+- `loads()` now accepts `bytes`, `bytearray`, and `memoryview` inputs
+
 ## Features
 
 - **Drop-in pickle API** — `dumps`/`loads`/`dump`/`load` with the same signatures
 - **Zero arbitrary code execution** — no `__reduce__` or `__setstate__` calls during deserialization
 - **Schema versioning** — migration hooks for evolving your data models
 - **Zero-copy tensor support** — NumPy and PyTorch integration
-- **Rust-native performance** — PyO3 bindings for speed
+- **Faster than pickle** — Rust-powered serialization that beats stdlib pickle on most workloads
+- **Extended type support** — `bytearray`, `complex`, arbitrary-precision `int`, and surrogate strings
 - **Pickle-compatible streaming** — `Pickler`/`Unpickler` classes, `PickleBuffer` (PEP 574)
 - **HMAC integrity** — optional tamper detection on serialized data
 

@@ -634,26 +634,19 @@ class TestDataclassBugsBeyondSpec:
     Marked xfail (non-strict) so they document the issue without blocking the suite.
     """
 
-    @pytest.mark.xfail(reason="InitVar pseudo-field is serialized as instance state", strict=False)
     def test_initvar_with_default_not_serialized(self):
         result = roundtrip(AccInitVarDefault(1, seed=5))
         assert result.x == 6
         assert "seed" not in type(result).__dataclass_fields__
 
-    @pytest.mark.xfail(reason="dumps getattr()s the InitVar name -> AttributeError", strict=False)
     def test_initvar_without_default_serializes(self):
         result = roundtrip(AccInitVarRequired(1, 5))
         assert result.x == 6
 
-    @pytest.mark.xfail(reason="make_class __init__(self, **kwargs) clashes with a field named 'self'", strict=False)
     def test_field_named_self(self):
         result = roundtrip(AccSelfField(3))
         assert result.self == 3
 
-    @pytest.mark.xfail(
-        reason="TypeRegistry dedupes by __name__: same-named dataclasses with different fields are silently corrupted",
-        strict=False,
-    )
     def test_same_name_different_fields_in_one_payload(self):
         def make_a():
             @dataclass
