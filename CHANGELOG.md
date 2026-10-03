@@ -2,6 +2,15 @@
 
 All notable changes to pysafe-pickle are documented here.
 
+## [1.3.1] - 2026-10-03
+
+### Changed
+- Removed dead code: unused `migration` and `graph::types` Rust modules
+- Suppressed warnings on reserved `FLAG_HMAC`/`FLAG_COMPRESSED` constants
+- CI version check is now dynamic (no more hardcoded version strings)
+- Added Python 3.14 to CI test matrix
+- Zero compiler warnings on release builds
+
 ## [1.3.0] - 2026-10-03
 
 ### Performance
