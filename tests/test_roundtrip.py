@@ -8,7 +8,8 @@ import pytest
 
 class TestVersion:
     def test_version(self):
-        assert pygraph.__version__ == "1.3.0"
+        from importlib.metadata import version
+        assert pygraph.__version__ == version("pysafe-pickle")
 
     def test_imports(self):
         assert hasattr(pygraph, "dumps")
