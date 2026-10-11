@@ -2,6 +2,16 @@
 
 All notable changes to pysafe-pickle are documented here.
 
+## [1.3.3] - 2026-10-11
+
+### Fixed
+- Dataclass instances returned by `loads()` can now be passed back to `dumps()` (previously raised `AttributeError`)
+
+### Changed
+- Documentation rewritten and verified against the code: API reference, binary format (18 tags), Rust engine internals, guides and benchmarks (re-measured for this version)
+- Corrected docs/README claims that did not match the code (tensor support, HMAC, allowlist semantics, automatic migrations, `Unpickler` behavior)
+- Removed unused Rust source files (`src/migration`, `src/graph/types.rs`)
+
 ## [1.3.2] - 2026-10-11
 
 ### Changed
@@ -21,7 +31,7 @@ All notable changes to pysafe-pickle are documented here.
 
 ### Performance
 - Serialization (`dumps`) is now faster than stdlib `pickle` on all tested data shapes
-- Deserialization (`loads`) matches or beats `pickle` on most shapes
+- Deserialization (`loads`) is roughly on par with `pickle` and still slower on some shapes (large dicts, int/string lists); payloads are larger than pickle's
 - Dataclass bulk serialization ~6x faster, deserialization ~22x faster
 - String-heavy payloads ~2x faster to serialize
 - Large bytes payloads ~5x faster to serialize

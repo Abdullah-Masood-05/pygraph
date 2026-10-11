@@ -4,10 +4,19 @@ The Rust decoder creates instances with ``object.__new__(cls)`` and sets the
 fields directly (pickle semantics: ``__init__`` is not called), so the
 instance exists before its fields are decoded and self-referencing graphs work.
 """
+import dataclasses
 import reprlib
 from typing import Any
 
 _class_cache: dict[tuple[str, tuple[str, ...]], type] = {}
+
+
+def _make_field(fn: str) -> Any:
+    f = dataclasses.field()
+    f.name = fn
+    f.type = object
+    f._field_type = dataclasses._FIELD  # type: ignore[attr-defined]
+    return f
 
 
 def make_class(name: str, field_names: list[str]) -> type:
@@ -53,7 +62,9 @@ def make_class(name: str, field_names: list[str]) -> type:
     cls.__repr__ = __repr__  # type: ignore[assignment]
     cls.__eq__ = __eq__  # type: ignore[assignment]
     cls.__hash__ = __hash__  # type: ignore[assignment]
-    cls.__dataclass_fields__ = {fn: None for fn in fields}  # type: ignore[attr-defined]
+    # Real Field objects (not None) so dataclasses.fields() works and a loaded
+    # instance can be passed straight back to dumps().
+    cls.__dataclass_fields__ = {fn: _make_field(fn) for fn in fields}  # type: ignore[attr-defined]
 
     _class_cache[key] = cls
     return cls

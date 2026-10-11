@@ -972,3 +972,18 @@ class TestPropertyRoundtrip:
     @given(_values(full=False))
     def test_dumps_deterministic(self, obj):
         assert psp.dumps(obj) == psp.dumps(obj)
+
+
+class TestRedumpLoadedObjects:
+    def test_loaded_dataclass_can_be_dumped_again(self):
+        import dataclasses
+
+        @dataclasses.dataclass
+        class Redump:
+            x: int
+            y: list
+
+        first = psp.loads(psp.dumps(Redump(1, [2, 3])))
+        second = psp.loads(psp.dumps(first))
+        assert second == first
+        assert [f.name for f in dataclasses.fields(first)] == ["x", "y"]
