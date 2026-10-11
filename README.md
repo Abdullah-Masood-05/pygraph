@@ -5,8 +5,11 @@ Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 [![Documentation](https://img.shields.io/badge/docs-website-10b981?style=flat-square&logo=vitepress)](https://abdullah-masood-05.github.io/pygraph/)
 [![PyPI](https://img.shields.io/pypi/v/pysafe-pickle?style=flat-square)](https://pypi.org/project/pysafe-pickle/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Abdullah-Masood-05/pygraph?style=flat-square&logo=github)](https://github.com/Abdullah-Masood-05/pygraph/stargazers)
 
 📖 **Documentation**: [https://abdullah-masood-05.github.io/pygraph/](https://abdullah-masood-05.github.io/pygraph/)
+
+> ⭐ **Enjoying pysafe-pickle?** If it saved you from unsafe deserialization, please [star it on GitHub](https://github.com/Abdullah-Masood-05/pygraph) or [share it](https://pypi.org/project/pysafe-pickle/). It's free and it helps other Python developers find it.
 
 ## What's New in v1.3.0
 

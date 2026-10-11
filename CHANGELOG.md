@@ -2,6 +2,12 @@
 
 All notable changes to pysafe-pickle are documented here.
 
+## [1.3.2] - 2026-10-11
+
+### Changed
+- README: added a GitHub stars badge and a short request to star the project
+- No code changes; only the README (the PyPI page description) and version numbers changed
+
 ## [1.3.1] - 2026-10-03
 
 ### Changed
