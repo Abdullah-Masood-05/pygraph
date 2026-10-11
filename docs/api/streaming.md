@@ -1,6 +1,6 @@
 # Streaming API Reference
 
-Classes for stream-oriented serialization, matching standard `pickle.Pickler` and `pickle.Unpickler` APIs.
+Classes for stream-oriented serialization, modelled on the standard `pickle.Pickler` and `pickle.Unpickler` APIs.
 
 ---
 
@@ -22,9 +22,11 @@ class Pickler:
     ): ...
 ```
 
+`fix_imports` and `buffer_callback` are accepted for signature compatibility but ignored.
+
 ### Methods:
-- **`dump(obj: Any) -> None`**: Serializes `obj` and writes to the underlying stream.
-- **`proto`**: The active protocol number (`5`).
+- **`dump(obj: Any) -> None`**: Serializes `obj` with `dumps` (passing `protocol`, `schema_version` and `hmac_key`) and writes the bytes to the underlying stream. Raises `ValueError` if `protocol != 5` and `NotImplementedError` if `hmac_key` is set; both are raised at `dump` time, not at construction.
+- **`proto`**: The protocol number passed to the constructor (`5` by default).
 
 ---
 
@@ -46,14 +48,26 @@ class Unpickler:
     ): ...
 ```
 
+`fix_imports`, `encoding`, `errors` and `buffers` are accepted for signature compatibility but ignored. `allowlist` has the same semantics as in `loads` (set of dataclass names).
+
 ### Methods:
-- **`load() -> Any`**: Reads from the underlying stream and reconstructs the next object.
+- **`load() -> Any`**: Reads the **entire** remaining stream with one `.read()` and deserializes it as a single payload. Each stream holds one payload: writing several objects to one stream and calling `load()` repeatedly does not work (a second `load()` on an exhausted stream raises `ValueError: Invalid data: too short for header`).
+
+```python
+import io
+import pysafe_pickle as psp
+
+buf = io.BytesIO()
+psp.Pickler(buf).dump({"a": [1, 2, 3]})
+buf.seek(0)
+print(psp.Unpickler(buf).load())  # {'a': [1, 2, 3]}
+```
 
 ---
 
 ## `PickleBuffer`
 
-PEP 574 out-of-band buffer wrapper for zero-copy memory transfers.
+PEP 574-style buffer wrapper. It is a plain helper class: `dumps` / `Pickler.dump` do not support it as a payload value (`TypeError: Unsupported type: PickleBuffer`), and `buffer_callback` / `buffers` are not wired up.
 
 ```python
 class PickleBuffer:

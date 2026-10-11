@@ -1,43 +1,56 @@
-# Streaming & PickleBuffer (PEP 574)
+# Streaming & PickleBuffer
 
-For large payloads, IPC communication, and distributed frameworks, `pysafe-pickle` provides streaming classes and zero-copy out-of-band buffer support.
+`pysafe-pickle` provides `Pickler` and `Unpickler` classes that follow the shape of the standard library ones, plus a small `PickleBuffer` helper. These are thin wrappers over `dumps` / `loads`.
+
+::: warning Current limitations
+- There is **no zero-copy or out-of-band buffer transfer**, and no NumPy or PyTorch support.
+- `Unpickler.load()` reads the **entire** file object and decodes it as one payload, so you cannot read several `Pickler.dump()` records back from one stream one at a time. Use one payload per stream or file, or frame the records yourself.
+- `buffer_callback`, `buffers`, `fix_imports`, `encoding`, and `errors` are accepted for signature compatibility but ignored.
+:::
 
 ---
 
-## Streaming with `Pickler` and `Unpickler`
-
-When working with streams, sockets, or binary files, use the `Pickler` and `Unpickler` classes:
+## `Pickler` and `Unpickler`
 
 ```python
 import io
 import pysafe_pickle as psp
 
-# Streaming into an in-memory buffer or network socket
 buffer = io.BytesIO()
 pickler = psp.Pickler(buffer, protocol=5)
-
-# Write records sequentially
 pickler.dump({"event": "login", "user_id": 101})
-pickler.dump({"event": "click", "target": "button_buy"})
 
-# Read records sequentially
 buffer.seek(0)
 unpickler = psp.Unpickler(buffer)
+print(unpickler.load())  # {'event': 'login', 'user_id': 101}
+```
 
-event1 = unpickler.load()
-event2 = unpickler.load()
+`Pickler(file, *, protocol=5, ...)` writes the serialized bytes to `file` on each `dump()` call. Only protocol 5 is supported. `Unpickler(file, *, allowlist=None, ...)` accepts the same `allowlist` set as `loads`.
 
-print(event1)  # {'event': 'login', 'user_id': 101}
-print(event2)  # {'event': 'click', 'target': 'button_buy'}
+### Multiple records in one stream
+
+Because `Unpickler.load()` consumes the whole stream, frame records yourself when you need several, for example with a length prefix:
+
+```python
+import io, struct
+import pysafe_pickle as psp
+
+stream = io.BytesIO()
+for record in [{"event": "login"}, {"event": "click"}]:
+    blob = psp.dumps(record)
+    stream.write(struct.pack("<I", len(blob)) + blob)
+
+stream.seek(0)
+while header := stream.read(4):
+    (n,) = struct.unpack("<I", header)
+    print(psp.loads(stream.read(n)))
 ```
 
 ---
 
-## Zero-Copy Out-of-Band Buffers (`PickleBuffer`)
+## `PickleBuffer`
 
-Python's **PEP 574** introduced `PickleBuffer` to allow large contiguous blocks of memory (such as NumPy arrays, Arrow tables, or PyTorch tensors) to be transferred without memory copies.
-
-`pysafe-pickle` includes a native implementation of `PickleBuffer`:
+`psp.PickleBuffer` is a lightweight wrapper around a bytes-like object that exposes it as a `memoryview`:
 
 ```python
 import pysafe_pickle as psp
@@ -45,13 +58,9 @@ import pysafe_pickle as psp
 raw_data = b"Large contiguous memory payload" * 1024
 buffer = psp.PickleBuffer(raw_data, readonly=True)
 
-# Access underlying memoryview without copying
-mem_view = buffer.raw()
+mem_view = buffer.raw()          # memoryview over raw_data, no copy
 assert len(mem_view) == len(raw_data)
 assert buffer.readonly is True
 ```
 
-### Benefits:
-- **Shared Memory IPC**: Directly map memory between processes.
-- **Zero Serialization Overhead**: Huge numerical datasets bypass serialization overhead.
-- **Protocol 5 Compatibility**: Fully interoperable with standard Protocol 5 streaming protocols.
+A `PickleBuffer` instance itself cannot currently be passed to `dumps` (it raises `TypeError: Unsupported type`), and PEP 574 out-of-band transfer is not implemented. To serialize binary data, pass `bytes` or `bytearray` directly.

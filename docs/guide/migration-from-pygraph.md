@@ -25,13 +25,16 @@ import pysafe_pickle as psp
    - `from pygraph.migrations import migrate` works without errors.
    - `from pygraph.exceptions import PyGraphError` works without errors.
 2. **Gentle Warning**:
-   - Importing `pygraph` emits a `FutureWarning` (`stacklevel=2`) indicating that `pygraph` will be removed in `v2.0.0`.
+   - Importing `pygraph` emits a `FutureWarning` (`stacklevel=2`) indicating that `pygraph` will be removed in `pysafe-pickle` 2.0.0. The shim stays available throughout v1.x.
+   - `pygraph` is a thin alias: `pygraph.dumps is pysafe_pickle.dumps`, and `pygraph.migrations`, `pygraph.exceptions`, and `pygraph.pickler` resolve to the same modules as their `pysafe_pickle` counterparts.
+   - To silence the warning while you migrate, update the import rather than filtering it.
 3. **Dual Binary Compatibility**:
    - Data files created with `v1.0.x` start with the `PYGR` magic header.
-   - The `v1.1.0` decoder accepts **both** `PYGR` and the new `PSPK` header.
+   - The decoder accepts **both** the legacy `PYGR` and the current `PSPK` header, with no warning when reading old data.
+   - New payloads are always written with the `PSPK` header.
    - You can load old files without doing any data conversion!
 4. **Dual Attribute Support**:
-   - Dataclasses with `__pygraph_version__` continue to resolve migrations seamlessly alongside `__pysafe_pickle_version__`.
+   - Dataclasses with `__pygraph_version__` are versioned just like those with `__pysafe_pickle_version__` (the new name takes precedence if both exist). See [Schema Evolution](/guide/schema-evolution) for how migrations behave.
 
 ---
 
@@ -62,3 +65,11 @@ restored = psp.loads(data)
 def migrate_user(state):
     ...
 ```
+
+---
+
+## Behavior Notes for Upgrading
+
+- Anything loaded from old `PYGR` files is rebuilt as a dynamically created class named after the original dataclass, exactly as with new files (not your original class).
+- Since v1.3.0, additional types are supported (arbitrary-size `int`, `bytearray`, `complex`, lone-surrogate strings). Old decoders can still read payloads that do not use them.
+- `hmac_key` raises `NotImplementedError` (HMAC is not yet implemented).

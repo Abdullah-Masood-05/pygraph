@@ -13,8 +13,10 @@ Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 
 ## What's New in v1.3.0
 
+> v1.3.2 changed only the README. v1.3.3 fixes re-dumping loaded dataclass instances and corrects the documentation (see [CHANGELOG.md](CHANGELOG.md)).
+
 ### Performance
-- **Faster than pickle** — `dumps` is now faster than stdlib `pickle` on every benchmark shape; `loads` is on par or faster for most workloads
+- **Faster `dumps`** — faster than stdlib `pickle` on every benchmark shape measured; `loads` is roughly on par with `pickle` and slower on some shapes. Payloads are larger than `pickle`'s
 - Dataclass serialization is **6x faster** (dumps) and **22x faster** (loads) for bulk dataclass payloads
 - String-heavy payloads serialize **2x faster**
 
@@ -29,31 +31,23 @@ Safe, fast, schema-evolvable Python object graph serialization powered by Rust.
 - `ClassVar` and `InitVar` fields are no longer incorrectly serialized
 - Two dataclasses sharing a class name no longer corrupt each other's fields
 - Fields named `self` no longer break deserialization
-- `loads()` now accepts `bytes`, `bytearray`, and `memoryview` inputs
+- `loads()`/`load()` now accept `bytes`, `bytearray`, and `memoryview` inputs
+- Dataclass instances returned by `loads()` can be passed to `dumps()` again
 
 ## Features
 
-- **Drop-in pickle API** — `dumps`/`loads`/`dump`/`load` with the same signatures
+- **Familiar pickle-style API** — `dumps`/`loads`/`dump`/`load` (protocol 5 only; same basic call shapes)
 - **Zero arbitrary code execution** — no `__reduce__` or `__setstate__` calls during deserialization
 - **Schema versioning** — migration hooks for evolving your data models
-- **Zero-copy tensor support** — NumPy and PyTorch integration
-- **Faster than pickle** — Rust-powered serialization that beats stdlib pickle on most workloads
+- **Fast serialization** — Rust-powered `dumps` is faster than stdlib pickle on most data shapes; `loads` is roughly on par (slower on some shapes) and payloads are larger
 - **Extended type support** — `bytearray`, `complex`, arbitrary-precision `int`, and surrogate strings
-- **Pickle-compatible streaming** — `Pickler`/`Unpickler` classes, `PickleBuffer` (PEP 574)
-- **HMAC integrity** — optional tamper detection on serialized data
+- **Pickle-compatible streaming** — `Pickler`/`Unpickler` classes, `PickleBuffer` (a simple buffer wrapper; out-of-band transfer is not supported)
+- **HMAC integrity** — not yet supported (planned); `dumps(hmac_key=...)` raises `NotImplementedError`
 
 ## Installation
 
 ```bash
 pip install pysafe-pickle
-```
-
-For tensor support:
-
-```bash
-pip install pysafe-pickle[numpy]
-pip install pysafe-pickle[torch]
-pip install pysafe-pickle[all]
 ```
 
 ## Quick Start
@@ -72,7 +66,7 @@ assert decoded == data
 
 ## Schema Evolution
 
-Define versioned dataclasses and register migrations:
+Declare a schema version on your dataclasses and register migrations:
 
 ```python
 from dataclasses import dataclass
@@ -98,7 +92,8 @@ def migrate_v1_to_v2(state: dict) -> dict:
 - Set `__pysafe_pickle_version__` as a class attribute on your dataclass (legacy `__pygraph_version__` is also fully supported)
 - Register migration functions with `@psp.migrate(from_version=N, to_version=M, type_name="ClassName")`
 - Migration functions receive a `dict` of the old state and return a `dict` with the new state
-- Chains of migrations are resolved automatically (e.g., v1 → v2 → v3)
+- Chains of migrations are resolved (e.g., v1 → v2 → v3) by `psp.apply_migrations(...)`
+- **`loads` does not apply migrations automatically in normal use**: loaded dataclasses are dynamically generated classes that carry no version. Track the version the data was written with, load, then call `psp.apply_migrations("User", vars(obj), from_version, to_version)` and build your current class from the result. See the [Schema Evolution guide](docs/guide/schema-evolution.md) for the full workflow.
 
 ## Pickler / Unpickler
 
@@ -119,37 +114,47 @@ unpickler = psp.Unpickler(buf)
 result = unpickler.load()
 ```
 
+`Unpickler.load()` reads the whole stream, so use one record per stream (one `dump` per buffer).
+
 ## Security
 
-pysafe-pickle never calls `__reduce__`, `__setstate__`, or any arbitrary code during deserialization. Only allowlisted types can be loaded.
+pysafe-pickle never calls `__reduce__`, `__setstate__`, or any arbitrary code during deserialization. Only the supported types below can be loaded.
+
+The optional `allowlist` restricts which **dataclass** names may be loaded. It must be a `set` of class `__name__` strings. Built-in types are never checked against it.
 
 ```python
-# Restrict deserialization to specific types
-psp.loads(data, allowlist={"builtins.dict", "builtins.list"})
+from dataclasses import dataclass
+import pysafe_pickle as psp
+
+@dataclass
+class User:
+    name: str
+    age: int
+
+data = psp.dumps(User("Alice", 30))
+
+psp.loads(data, allowlist={"User"})   # OK
+psp.loads(data, allowlist={"Other"})  # TypeError: Type 'User' is not in the allowlist
 ```
 
-## Allowlisted types
-
-By default, pysafe-pickle supports:
+## Supported types
 
 | Type | Notes |
 |------|-------|
-| `None`, `bool`, `int`, `float` | Primitives |
-| `str`, `bytes` | Strings and binary |
+| `None`, `bool`, `float`, `complex` | Primitives |
+| `int` | Any size (arbitrary precision) |
+| `str` | Including lone surrogates |
+| `bytes`, `bytearray` | Binary |
 | `list`, `tuple` | Sequences |
 | `dict` | Mappings |
 | `set`, `frozenset` | Sets |
-| `dataclasses` | Any `@dataclass` instance |
+| dataclass instances | Any `@dataclass` instance; subject to `allowlist` by class name |
 
-Any type not in this list raises `UnsafeTypeError` unless added to the allowlist.
+Anything else (subclasses of the above, `datetime`, NumPy arrays, PyTorch tensors, etc.) raises `TypeError: Unsupported type`.
 
 ## Integrity verification
 
-```python
-key = b"my-secret-key"
-encoded = psp.dumps(data, hmac_key=key)
-decoded = psp.loads(encoded, hmac_key=key)  # raises HMACError if tampered
-```
+HMAC integrity verification is **not yet supported** (planned). `dumps(..., hmac_key=...)` raises `NotImplementedError`, and `loads`/`load` have no `hmac_key` parameter.
 
 ## Migration from v1.0.x (`pygraph`)
 
@@ -171,7 +176,7 @@ psp.dumps(data)
 
 ## Benchmarks
 
-Run the benchmark suite to compare pysafe-pickle vs pickle:
+Run the benchmark suite to compare pysafe-pickle vs pickle. In our measurements `dumps` is faster than pickle on every shape tested, `loads` is roughly on par (slower on some shapes), and payloads are larger than pickle's:
 
 ```bash
 uv run pytest benchmarks/ -v --benchmark-only

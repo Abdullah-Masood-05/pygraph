@@ -34,7 +34,7 @@ export default withMermaid(
         { text: 'Architecture', link: '/architecture/binary-format' },
         { text: 'Benchmarks', link: '/benchmarks/performance' },
         {
-          text: 'v1.2.0',
+          text: 'v1.3.3',
           items: [
             { text: 'PyPI Package', link: 'https://pypi.org/project/pysafe-pickle/' },
             { text: 'GitHub Releases', link: 'https://github.com/Abdullah-Masood-05/pygraph/releases' },
@@ -85,7 +85,7 @@ export default withMermaid(
           {
             text: 'Performance',
             items: [
-              { text: 'Benchmarks vs Original pygraph & Pickle', link: '/benchmarks/performance' },
+              { text: 'Benchmarks vs Pickle', link: '/benchmarks/performance' },
             ],
           },
         ],

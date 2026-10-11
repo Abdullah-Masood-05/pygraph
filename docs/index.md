@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Pysafe Pickle"
   text: "Safe, Fast, Schema-Evolvable Object Graph Serialization"
-  tagline: "Powered by Rust. Zero arbitrary code execution. Drop-in pickle API."
+  tagline: "Powered by Rust. No arbitrary code execution on load. Familiar pickle-style API."
   image:
     src: /logo.svg
     alt: pysafe-pickle logo
@@ -21,24 +21,28 @@ hero:
 
 features:
   - icon: 🛡️
-    title: Zero Arbitrary Code Execution
-    details: Unlike Python's standard pickle, pysafe-pickle never invokes __reduce__, __setstate__, exec, or eval during deserialization.
+    title: No Code Execution on Load
+    details: Unlike Python's standard pickle, pysafe-pickle never invokes __reduce__, __setstate__, exec, or eval during deserialization. Only a fixed set of built-in types and dataclasses can be rebuilt.
   - icon: ⚡
-    title: Rust-Native Performance
-    details: Core traversal, custom binary encoding, and decoding implemented in Rust with PyO3 bindings for maximum throughput.
+    title: Rust-Native Speed
+    details: Traversal, encoding, and decoding are implemented in Rust with PyO3. dumps is faster than pickle on most data shapes; loads is roughly on par, and slower on some. Payloads are larger than pickle's.
   - icon: 🔄
-    title: Schema Evolution & Migrations
-    details: First-class support for evolving dataclass models with @psp.migrate decorators, automated chain resolution, and versioning.
+    title: Schema Versions & Migrations
+    details: Dataclass schema versions are embedded in the payload, and @psp.migrate registers migration chains. Migrations are applied explicitly via apply_migrations (see the guide for current limits).
   - icon: 📦
-    title: Drop-in Pickle API
-    details: Seamless dumps, loads, dump, load, and streaming Pickler / Unpickler classes matching standard pickle semantics.
-  - icon: 🚀
-    title: Zero-Copy Tensors & Streaming
-    details: Native integration with NumPy and PyTorch tensors, plus PEP 574 PickleBuffer out-of-band streaming support.
+    title: Pickle-Style API
+    details: dumps, loads, dump, load, plus Pickler / Unpickler classes. loads accepts bytes, bytearray, and memoryview. Only protocol 5 is supported.
+  - icon: 🔁
+    title: Cycles & Shared References
+    details: Cyclic and shared references are preserved for lists, dicts, sets, bytearrays, and dataclasses, including self-referential dataclasses.
   - icon: 🔐
-    title: Allowlist & HMAC Verification
-    details: Built-in strict type allowlisting and optional HMAC-SHA256 data tampering detection.
+    title: Type Allowlist
+    details: Pass an allowlist to loads to restrict which dataclass types may be reconstructed. HMAC signing is not yet supported (hmac_key raises NotImplementedError).
 ---
+
+## Supported Types
+
+`None`, `bool`, arbitrary-size `int`, `float`, `complex`, `str` (including lone surrogates), `bytes`, `bytearray`, `list`, `tuple`, `dict`, `set`, `frozenset`, and `@dataclass` instances. Anything else raises `TypeError: Unsupported type`.
 
 ## Quick Example
 
@@ -53,12 +57,15 @@ class User:
     email: str = ""
     __pysafe_pickle_version__ = 1
 
-# Serialize safely with Rust
+# Serialize with Rust
 data = psp.dumps(User(name="Alice", age=30, email="alice@example.com"))
 
 # Deserialize without arbitrary code execution
 user = psp.loads(data)
 assert user.name == "Alice"
+# Note: `user` is an instance of a dynamically created class named "User",
+# not of your original class.
+assert type(user).__name__ == "User" and type(user) is not User
 ```
 
 ## Community & Ecosystem
