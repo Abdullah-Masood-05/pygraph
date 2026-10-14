@@ -87,5 +87,5 @@ The `Walker` traverses the Python object graph breadth-first using a work queue:
 ## 5. ABI3 Wheel Distribution
 
 `pysafe-pickle` targets PyO3's `abi3-py310` feature:
-- A single pre-built wheel runs across Python 3.10, 3.11, 3.12, 3.13, and future Python 3.x minor releases without recompilation.
+- A single pre-built wheel runs across Python 3.10 through 3.15 (free-threaded builds are not supported) and future Python 3.x minor releases without recompilation.
 - Zero local C/Rust compiler requirement for end users.

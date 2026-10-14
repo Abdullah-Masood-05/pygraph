@@ -2,6 +2,15 @@
 
 All notable changes to pysafe-pickle are documented here.
 
+## [1.3.4] - 2026-10-14
+
+### Added
+- Python 3.15 support: added to the CI test matrix (Linux, Windows, macOS) and the PyPI classifiers. The same abi3 wheel was also verified locally on Python 3.10 through 3.15 (424 tests each, no warnings from Python itself)
+
+### Changed
+- Added the Python 3.14 and 3.15 PyPI classifiers (supported: Python 3.10 through 3.15)
+- The single abi3 wheel (`cp310-abi3`) covers all supported versions; free-threaded builds are not supported
+
 ## [1.3.3] - 2026-10-11
 
 ### Fixed

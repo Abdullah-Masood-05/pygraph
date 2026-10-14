@@ -18,7 +18,7 @@ poetry add pysafe-pickle
 ```
 :::
 
-`pysafe-pickle` has no runtime dependencies and requires Python 3.10 or newer.
+`pysafe-pickle` has no runtime dependencies and requires Python 3.10 or newer (tested on Python 3.10 through 3.15). A single abi3 wheel covers all of these versions; free-threaded builds are not supported.
 
 ::: warning NumPy / PyTorch not supported yet
 There are no `numpy`, `torch`, or `all` extras, and NumPy arrays or PyTorch tensors cannot be serialized (they raise `TypeError: Unsupported type`). Convert them to lists or `bytes` first.

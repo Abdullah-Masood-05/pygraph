@@ -7,7 +7,7 @@
 **Version:** 1.3.0
 **Repository:** `Abdullah-Masood-05/pygraph` (GitHub)
 **License:** AGPL-3.0-only
-**Python:** >=3.10
+**Python:** >=3.10 (tested 3.10 through 3.15; one abi3 wheel covers all, free-threaded builds not supported)
 **Rust:** Edition 2021
 
 ---
@@ -54,7 +54,7 @@ pygraph/
 ├── Cargo.toml                    # Rust deps: pyo3 0.24 (abi3-py310), rustc-hash 2
 ├── pyproject.toml                # Build: maturin, Python metadata, optional deps
 └── .github/workflows/
-    ├── ci.yml                    # Multi-OS x Python 3.10-3.13 CI
+    ├── ci.yml                    # Multi-OS x Python 3.10-3.15 CI
     ├── publish.yml               # Tag-triggered PyPI publish + GitHub Release with wheels
     └── deploy-docs.yml           # Documentation site deployment
 ```
