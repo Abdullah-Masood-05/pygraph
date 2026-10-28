@@ -41,7 +41,10 @@ def same(a, b):
     return a == b
 
 
-NY = zoneinfo.ZoneInfo("America/New_York")
+try:
+    NY = zoneinfo.ZoneInfo("America/New_York")
+except zoneinfo.ZoneInfoNotFoundError:  # e.g. Windows without the tzdata package
+    pytest.skip("no IANA time zone database; pip install tzdata", allow_module_level=True)
 
 STD_VALUES = [
     dt.datetime(2024, 3, 10, 1, 2, 3, 456789),

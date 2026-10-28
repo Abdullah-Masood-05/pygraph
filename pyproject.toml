@@ -31,7 +31,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis", "pytest-benchmark"]
+dev = ["pytest", "hypothesis", "pytest-benchmark", "tzdata"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
