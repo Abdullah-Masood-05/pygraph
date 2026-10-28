@@ -26,6 +26,7 @@ from pysafe_pickle.migrations import (
     get_schema_version,
     set_schema_version,
 )
+from pysafe_pickle.compat import load_pickle, loads_pickle, convert_pickle
 
 __all__ = [
     "__version__",
@@ -48,4 +49,7 @@ __all__ = [
     "SchemaVersionError",
     "HMACError",
     "DecodeError",
+    "load_pickle",
+    "loads_pickle",
+    "convert_pickle",
 ]
