@@ -889,7 +889,7 @@ fn resolve_rt<'py>(
             recon(py, "check_enum_class")?.call1((&cls, td.name))?;
             Ok(RtType { tag, cls, names: Vec::new(), migrate: false, current_version: 0, real: true, plan: None })
         }
-        (_, None) => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+        (_, None) => Err(crate::errors::unsafe_type_error(format!(
             "Unsupported type: enum {} (pass it via classes=)",
             td.name
         ))),

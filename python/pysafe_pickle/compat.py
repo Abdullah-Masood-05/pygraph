@@ -1459,15 +1459,14 @@ def convert_pickle(
     *data* is anything :func:`load_pickle` accepts. Extra keyword arguments
     (for example ``protocol=`` and ``schema_version=``) go to ``dumps``.
 
-    The output can only hold types that pysafe-pickle can encode. As of
-    v1.3.x that means ``None``, ``bool``, ``int``, ``float``, ``complex``,
-    ``str``, ``bytes``, ``bytearray``, ``list``, ``tuple``, ``dict``,
-    ``set``, ``frozenset`` and dataclass instances. Values this reader can
-    load but ``dumps`` can't encode yet make ``dumps`` raise ``TypeError``.
-    These include ``datetime`` types, ``Decimal``, ``Fraction``, ``UUID``,
-    ``OrderedDict``/``Counter``/``defaultdict``/``deque``, ``range``,
-    ``slice``, paths, ``ZoneInfo``, enums, namedtuples and plain
-    (non-dataclass) classes.
+    The output can only hold types that pysafe-pickle can encode: the
+    builtin scalars and containers, ``datetime`` types, ``timezone`` and
+    ``ZoneInfo``, ``Decimal``, ``Fraction``, ``UUID``, ``OrderedDict``,
+    ``Counter``, ``defaultdict`` (builtin factories), ``deque``, ``range``,
+    ``slice``, paths, enums, namedtuples and dataclass instances. Plain
+    (non-dataclass) classes that this reader can load make ``dumps`` raise
+    ``UnsafeTypeError``. To read the result back as your own classes, pass
+    the same ``classes=`` to :func:`pysafe_pickle.loads`.
     """
     from pysafe_pickle._pysafe_pickle import dumps
 

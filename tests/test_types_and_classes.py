@@ -709,3 +709,15 @@ def _containers(children):
 @given(st.recursive(_base, _containers, max_leaves=12))
 def test_hypothesis_roundtrip(value):
     assert same(rt(value, classes=[Color, Level, Perm, Point]), value)
+
+
+def test_enum_without_classes_raises_unsafe_type_error():
+    import enum
+    from pysafe_pickle.exceptions import UnsafeTypeError
+
+    class Shade(enum.Enum):
+        DARK = 1
+
+    blob = psp.dumps(Shade.DARK)
+    with pytest.raises(UnsafeTypeError, match="pass it via classes="):
+        psp.loads(blob)
