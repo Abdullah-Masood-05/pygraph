@@ -27,6 +27,8 @@ fn class<'py>(
     .map(|c| c.bind(py))
 }
 
+#[cold]
+#[inline(never)]
 fn make(
     cell: &'static GILOnceCell<Py<PyType>>,
     name: &str,

@@ -162,6 +162,22 @@ fn loads(
     hmac_key: Option<integrity::HmacKey>,
     classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
+    // Fast path for the common call (`bytes` input, unsigned payload, no
+    // options): skips the generic framing/option handling below. Signed
+    // payloads fall through so they raise the usual HMACError.
+    if hmac_key.is_none() && classes.is_none() && allowlist.is_none() {
+        if let Ok(b) = data.downcast::<PyBytes>() {
+            let bytes = b.as_bytes();
+            if !integrity::is_signed(bytes) {
+                let g = if bytes.len() >= GIL_RELEASE_THRESHOLD {
+                    py.allow_threads(|| decoder::decode(bytes))?
+                } else {
+                    decoder::decode(bytes)?
+                };
+                return Ok(decoder::reconstruct(py, &g, None)?.unbind());
+            }
+        }
+    }
     let opts = LoadOpts { hmac_key: integrity::key_slice(&hmac_key), whole_buffer: true };
     Ok(loads_bytes_like(py, data, allowlist, classes, "", opts)?.0)
 }
@@ -260,7 +276,6 @@ fn _pysafe_pickle(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(loads, m)?)?;
     m.add_function(wrap_pyfunction!(_loads_prefix, m)?)?;
     m.add_function(wrap_pyfunction!(dump, m)?)?;
-    m.add_function(wrap_pyfunction!(load, m)?)?;
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_function(wrap_pyfunction!(load, m)?)?;    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

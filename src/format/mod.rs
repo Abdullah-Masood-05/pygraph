@@ -199,8 +199,22 @@ pub fn read_u8(data: &[u8], offset: &mut usize) -> Option<u8> {
     Some(v)
 }
 
+#[inline(always)]
 pub fn read_i64_zigzag(data: &[u8], offset: &mut usize) -> Option<i64> {
-    let zigzag = read_u64_varint(data, offset)?;
+    // Fast path for 1- and 2-byte varints (|v| < 8192), same result as the
+    // general loop.
+    let o = *offset;
+    let zigzag = match data.get(o..o + 2) {
+        Some(&[b0, _]) if b0 < 0x80 => {
+            *offset = o + 1;
+            b0 as u64
+        }
+        Some(&[b0, b1]) if b1 < 0x80 => {
+            *offset = o + 2;
+            (b0 & 0x7F) as u64 | (b1 as u64) << 7
+        }
+        _ => read_u64_varint(data, offset)?,
+    };
     Some(((zigzag >> 1) as i64) ^ -((zigzag & 1) as i64))
 }
 
