@@ -128,12 +128,35 @@ impl From<DecodeError> for Failure {
 /// streaming caller can read more input and retry.
 ///
 /// Pure Rust; safe to call with the GIL released.
+#[inline]
 pub fn decode_one<'a>(
     data: &'a [u8],
     key: Option<&[u8]>,
     whole_buffer: bool,
 ) -> Result<(DecodedGraph<'a>, usize), Failure> {
-    let signed = matches!(header_flags(data), Some(f) if f & FLAG_HMAC != 0);
+    // Common case first: unsigned payload, no key. Everything else (signed
+    // payloads, key mismatches) is kept out of line.
+    if key.is_none() && !is_signed(data) {
+        let g = decoder::decode(data)?;
+        let end = g.end;
+        return Ok((g, end));
+    }
+    decode_one_keyed(data, key, whole_buffer)
+}
+
+#[inline]
+pub fn is_signed(data: &[u8]) -> bool {
+    matches!(header_flags(data), Some(f) if f & FLAG_HMAC != 0)
+}
+
+#[cold]
+#[inline(never)]
+fn decode_one_keyed<'a>(
+    data: &'a [u8],
+    key: Option<&[u8]>,
+    whole_buffer: bool,
+) -> Result<(DecodedGraph<'a>, usize), Failure> {
+    let signed = is_signed(data);
     let key = match (signed, key) {
         (false, None) => {
             let g = decoder::decode(data)?;

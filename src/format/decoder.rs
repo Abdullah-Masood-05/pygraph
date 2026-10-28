@@ -23,6 +23,7 @@
 //! The format is self-contained: this module does not depend on the
 //! serializer's in-memory graph representation.
 
+use std::cell::Cell;
 use std::sync::Mutex;
 
 use pyo3::prelude::*;
@@ -80,6 +81,8 @@ impl std::fmt::Display for DecodeError {
 impl std::error::Error for DecodeError {}
 
 impl From<DecodeError> for PyErr {
+    #[cold]
+    #[inline(never)]
     fn from(err: DecodeError) -> PyErr {
         crate::errors::decode_error(err.to_string())
     }
@@ -127,6 +130,65 @@ pub struct DecodedGraph<'a> {
     pub end: usize,
 }
 
+/// Phase-1 index buffers, kept per thread between calls: for small payloads
+/// the heap allocations are a visible share of the cost of a `loads`.
+struct Scratch {
+    strings: Vec<&'static [u8]>,
+    recs: Vec<Rec>,
+    rec_refs: Vec<u8>,
+    str_refs: Vec<u8>,
+}
+
+impl Scratch {
+    const EMPTY: Scratch = Scratch {
+        strings: Vec::new(),
+        recs: Vec::new(),
+        rec_refs: Vec::new(),
+        str_refs: Vec::new(),
+    };
+}
+
+/// Buffers with a larger capacity (in elements) are freed instead of kept, so
+/// a thread retains well under 1 MB; for payloads that large the allocation
+/// cost is negligible anyway.
+const SCRATCH_KEEP_MAX: usize = 1 << 14;
+
+thread_local! {
+    static SCRATCH: Cell<Scratch> = const { Cell::new(Scratch::EMPTY) };
+    static SCRATCH2: Cell<Scratch2> = const { Cell::new(Scratch2::EMPTY) };
+}
+
+fn take_scratch() -> Scratch {
+    // `try_with`: the thread-local may already be gone during thread exit.
+    SCRATCH.try_with(|s| s.replace(Scratch::EMPTY)).unwrap_or(Scratch::EMPTY)
+}
+
+/// Empties `v` and returns its allocation as a `Vec<U>` (which must have the
+/// same layout as `T`; in practice `U` is `T` with a different lifetime).
+/// Returns an unallocated vector if the capacity is above
+/// [`SCRATCH_KEEP_MAX`].
+fn recycle<T, U>(mut v: Vec<T>) -> Vec<U> {
+    if v.capacity() > SCRATCH_KEEP_MAX {
+        return Vec::new();
+    }
+    v.clear();
+    // `v` is empty, so the closure never runs; for same-layout element
+    // types `collect` reuses the allocation (in-place iteration).
+    v.into_iter().map(|_| unreachable!()).collect()
+}
+
+impl Drop for DecodedGraph<'_> {
+    fn drop(&mut self) {
+        let s = Scratch {
+            strings: recycle(std::mem::take(&mut self.strings)),
+            recs: recycle(std::mem::take(&mut self.recs)),
+            rec_refs: recycle(std::mem::take(&mut self.rec_refs)),
+            str_refs: recycle(std::mem::take(&mut self.str_refs)),
+        };
+        let _ = SCRATCH.try_with(|c| c.set(s));
+    }
+}
+
 impl DecodedGraph<'_> {
     #[cfg(test)]
     fn record_count(&self) -> usize {
@@ -136,9 +198,8 @@ impl DecodedGraph<'_> {
 
 #[inline]
 fn bump(counter: &mut u8) {
-    if *counter < 2 {
-        *counter += 1;
-    }
+    // Saturating at 2, branch-free.
+    *counter += (*counter < 2) as u8;
 }
 
 /// Reads a little-endian u32 at an offset that phase 1 already validated.
@@ -395,7 +456,10 @@ pub fn decode(data: &[u8]) -> Result<DecodedGraph<'_>, DecodeError> {
     // Entries are kept as raw byte slices: string *values* are UTF-8 decoded
     // (strictly) by CPython when materialized, so validating them here too
     // would decode every string twice. Type/field names are validated below.
-    let mut strings: Vec<&[u8]> = Vec::with_capacity(string_count as usize);
+    let scratch = take_scratch();
+    let mut strings: Vec<&[u8]> = scratch.strings;
+    strings.clear();
+    strings.reserve(string_count as usize);
     for _ in 0..string_count {
         let (len, start) =
             length_prefixed(data, &mut offset, "string length", "string data")?;
@@ -462,9 +526,15 @@ pub fn decode(data: &[u8]) -> Result<DecodedGraph<'_>, DecodeError> {
     let n = obj_count as usize;
     // `n` <= remaining input bytes (each record is >= 1 byte), so these
     // allocations are proportional to the actual input size.
-    let mut rec_refs = vec![0u8; n];
-    let mut str_refs = vec![0u8; strings.len()];
-    let mut recs: Vec<Rec> = Vec::with_capacity(n.min(1 << 20));
+    let mut rec_refs = scratch.rec_refs;
+    rec_refs.clear();
+    rec_refs.resize(n, 0);
+    let mut str_refs = scratch.str_refs;
+    str_refs.clear();
+    str_refs.resize(strings.len(), 0);
+    let mut recs: Vec<Rec> = scratch.recs;
+    recs.clear();
+    recs.reserve(n.min(1 << 20));
     if n > 0 {
         rec_refs[0] = 1; // the root is referenced by the caller
     }
@@ -1009,6 +1079,8 @@ fn decode_utf8<'py>(
     }
 }
 
+#[cold]
+#[inline(never)]
 fn cyclic_immutable(id: usize) -> PyErr {
     crate::errors::decode_error(format!(
         "Cyclic reference involving immutable container at ref_id {} is not supported",
@@ -1017,6 +1089,31 @@ fn cyclic_immutable(id: usize) -> PyErr {
 }
 
 impl<'a, 'py> Builder<'a, 'py> {
+    /// The value of child record `cid` when it needs no frame of its own: an
+    /// already-built shared record, or a leaf (memoized if shared). `None`
+    /// means the caller must go through [`Self::resolve`]. Only valid when
+    /// the child's depth is below `max_depth`.
+    #[inline(always)]
+    fn quick(&mut self, cid: usize) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let g = self.g;
+        let r = g.recs[cid];
+        if g.rec_refs[cid] >= SHARED {
+            if let Some(obj) = &self.memo[cid] {
+                return Ok(Some(obj.clone()));
+            }
+            if !is_leaf(r.tag) {
+                return Ok(None);
+            }
+            let v = self.scalar(r)?;
+            self.memo[cid] = Some(v.clone());
+            Ok(Some(v))
+        } else if is_leaf(r.tag) {
+            Ok(Some(self.scalar(r)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     #[inline]
     fn string(&mut self, idx: u32) -> PyResult<Bound<'py, PyAny>> {
         let i = idx as usize;
@@ -1033,7 +1130,17 @@ impl<'a, 'py> Builder<'a, 'py> {
         }
     }
 
+    #[inline]
     fn rt_type(&mut self, ty: usize, tag: Tag) -> PyResult<(Bound<'py, PyAny>, bool)> {
+        match &self.types[ty] {
+            Some(rt) if rt.tag == tag => Ok((rt.cls.clone(), rt.migrate)),
+            _ => self.rt_type_slow(ty, tag),
+        }
+    }
+
+    /// First use of type `ty` in this call (resolves it), or a kind mismatch.
+    #[inline(never)]
+    fn rt_type_slow(&mut self, ty: usize, tag: Tag) -> PyResult<(Bound<'py, PyAny>, bool)> {
         if self.types[ty].is_none() {
             self.types[ty] = Some(resolve_rt(self.py, &self.g.types[ty], tag, self.classes)?);
         }
@@ -1237,12 +1344,7 @@ impl<'a, 'py> Builder<'a, 'py> {
                 }
                 tag if is_leaf(tag) => self.scalar(r)?,
                 _ => {
-                    let mut off = off;
-                    let total = match r.tag {
-                        Tag::Dict | Tag::OrderedDict | Tag::DefaultDict | Tag::Counter => r.a as usize * 2,
-                        Tag::Enum => 1,
-                        _ => r.a as usize,
-                    };
+                    let total = if r.tag == Tag::Dict { r.a as usize * 2 } else { r.a as usize };
                     let kind = match r.tag {
                         Tag::List => {
                             if shared {
@@ -1277,63 +1379,9 @@ impl<'a, 'py> Builder<'a, 'py> {
                             }
                             Kind::Set(s)
                         }
-                        Tag::Fraction | Tag::Range | Tag::Slice | Tag::Enum | Tag::NamedTuple => {
-                            let build = match r.tag {
-                                Tag::Fraction => Build::Fraction,
-                                Tag::Range => Build::Range,
-                                Tag::Slice => Build::Slice,
-                                Tag::Enum => {
-                                    let ty = r.aux as usize;
-                                    self.rt_type(ty, Tag::Enum)?;
-                                    Build::Enum { ty, by_value: r.a == 1 }
-                                }
-                                _ => {
-                                    let ty = r.aux as usize;
-                                    self.rt_type(ty, Tag::NamedTuple)?;
-                                    Build::NamedTuple { ty }
-                                }
-                            };
-                            if shared {
-                                self.in_progress[id] = true;
-                            }
-                            Kind::Build(build)
-                        }
-                        Tag::OrderedDict | Tag::DefaultDict | Tag::Counter => {
-                            let obj = match r.tag {
-                                Tag::OrderedDict => std_ctor(py, StdCtor::OrderedDict)?.call0()?,
-                                Tag::Counter => std_ctor(py, StdCtor::Counter)?.call0()?,
-                                _ => {
-                                    let factory = match DEFAULT_FACTORIES[r.aux as usize] {
-                                        "" => py.None().into_bound(py),
-                                        name => py.import("builtins")?.getattr(name)?,
-                                    };
-                                    std_ctor(py, StdCtor::DefaultDict)?.call1((factory,))?
-                                }
-                            };
-                            if shared {
-                                self.memo[id] = Some(obj.clone());
-                            }
-                            Kind::Mapping(obj, None)
-                        }
-                        Tag::Deque => {
-                            let enc = u64::from_le_bytes(g.data[off..off + 8].try_into().unwrap());
-                            off += 12;
-                            let maxlen = if enc == 0 {
-                                py.None().into_bound(py)
-                            } else if enc - 1 <= isize::MAX as u64 {
-                                (enc - 1).into_pyobject(py)?.into_any()
-                            } else {
-                                return Err(invalid("Invalid data: deque maxlen out of range"));
-                            };
-                            let obj = std_ctor(py, StdCtor::Deque)?.call1((PyTuple::empty(py), maxlen))?;
-                            if shared {
-                                self.memo[id] = Some(obj.clone());
-                            }
-                            Kind::Deque(obj)
-                        }
-                        _ => {
-                            // Dataclass: create the instance first (pickle
-                            // semantics, `__init__` is not called) so that
+                        Tag::Dataclass => {
+                            // Create the instance first (pickle semantics,
+                            // `__init__` is not called) so that
                             // self-references resolve to it.
                             let ty = r.aux as usize;
                             let (cls, migrate) = self.rt_type(ty, Tag::Dataclass)?;
@@ -1343,6 +1391,7 @@ impl<'a, 'py> Builder<'a, 'py> {
                             }
                             Kind::Dataclass { obj, ty, migrate }
                         }
+                        _ => return self.resolve_ext(r, id, shared, depth),
                     };
                     return Ok(Step::Push(Frame {
                         id: id as u32,
@@ -1362,6 +1411,90 @@ impl<'a, 'py> Builder<'a, 'py> {
         }
     }
 
+    /// [`Self::resolve`] for the container records with tags >= 0x13 (kept
+    /// out of line so the hot path for the core tags stays small).
+    #[inline(never)]
+    fn resolve_ext(&mut self, r: Rec, id: usize, shared: bool, depth: usize) -> PyResult<Step<'py>> {
+        let py = self.py;
+        let g = self.g;
+        let mut off = r.b as usize;
+        let total = match r.tag {
+            Tag::OrderedDict | Tag::DefaultDict | Tag::Counter => r.a as usize * 2,
+            Tag::Enum => 1,
+            _ => r.a as usize,
+        };
+        let kind = match r.tag {
+            Tag::Fraction | Tag::Range | Tag::Slice | Tag::Enum | Tag::NamedTuple => {
+                let build = match r.tag {
+                    Tag::Fraction => Build::Fraction,
+                    Tag::Range => Build::Range,
+                    Tag::Slice => Build::Slice,
+                    Tag::Enum => {
+                        let ty = r.aux as usize;
+                        self.rt_type(ty, Tag::Enum)?;
+                        Build::Enum { ty, by_value: r.a == 1 }
+                    }
+                    _ => {
+                        let ty = r.aux as usize;
+                        self.rt_type(ty, Tag::NamedTuple)?;
+                        Build::NamedTuple { ty }
+                    }
+                };
+                if shared {
+                    self.in_progress[id] = true;
+                }
+                Kind::Build(build)
+            }
+            Tag::OrderedDict | Tag::DefaultDict | Tag::Counter => {
+                let obj = match r.tag {
+                    Tag::OrderedDict => std_ctor(py, StdCtor::OrderedDict)?.call0()?,
+                    Tag::Counter => std_ctor(py, StdCtor::Counter)?.call0()?,
+                    _ => {
+                        let factory = match DEFAULT_FACTORIES[r.aux as usize] {
+                            "" => py.None().into_bound(py),
+                            name => py.import("builtins")?.getattr(name)?,
+                        };
+                        std_ctor(py, StdCtor::DefaultDict)?.call1((factory,))?
+                    }
+                };
+                if shared {
+                    self.memo[id] = Some(obj.clone());
+                }
+                Kind::Mapping(obj, None)
+            }
+            Tag::Deque => {
+                let enc = u64::from_le_bytes(g.data[off..off + 8].try_into().unwrap());
+                off += 12;
+                let maxlen = if enc == 0 {
+                    py.None().into_bound(py)
+                } else if enc - 1 <= isize::MAX as u64 {
+                    (enc - 1).into_pyobject(py)?.into_any()
+                } else {
+                    return Err(invalid("Invalid data: deque maxlen out of range"));
+                };
+                let obj = std_ctor(py, StdCtor::Deque)?.call1((PyTuple::empty(py), maxlen))?;
+                if shared {
+                    self.memo[id] = Some(obj.clone());
+                }
+                Kind::Deque(obj)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "internal error: leaf record resolved as container",
+                ))
+            }
+        };
+        Ok(Step::Push(Frame {
+            id: id as u32,
+            kind,
+            off,
+            next: 0,
+            total,
+            base: self.values.len(),
+            depth,
+        }))
+    }
+
     /// Hands a finished child value to its parent frame.
     #[inline]
     fn deliver(&mut self, frame: &mut Frame<'py>, v: Bound<'py, PyAny>) -> PyResult<()> {
@@ -1379,14 +1512,7 @@ impl<'a, 'py> Builder<'a, 'py> {
                 }
                 Some(k) => d.set_item(k, v),
             },
-            Kind::Mapping(m, pending) => match pending.take() {
-                None => {
-                    *pending = Some(v);
-                    Ok(())
-                }
-                Some(k) => m.set_item(k, v),
-            },
-            Kind::Deque(d) => d.call_method1(pyo3::intern!(self.py, "append"), (v,)).map(|_| ()),
+            Kind::Mapping(..) | Kind::Deque(_) => deliver_ext(&mut frame.kind, v),
             Kind::Set(s) => s.add(v),
             Kind::Dataclass { obj, ty, migrate } => {
                 if *migrate {
@@ -1456,6 +1582,7 @@ impl<'a, 'py> Builder<'a, 'py> {
     }
 
     /// Builds an immutable value from the children collected at `base..`.
+    #[inline(never)]
     fn build(&mut self, build: Build, base: usize) -> PyResult<Bound<'py, PyAny>> {
         let py = self.py;
         let vals: Vec<Bound<'py, PyAny>> = self.values.drain(base..).collect();
@@ -1492,6 +1619,7 @@ impl<'a, 'py> Builder<'a, 'py> {
 
     /// Schema-migration path: runs `apply_migrations` on the serialized state
     /// and sets the migrated fields (and any extra keys) on `obj`.
+    #[inline(never)]
     fn finish_migration(&mut self, obj: &Bound<'py, PyAny>, ty: usize, base: usize) -> PyResult<()> {
         let py = self.py;
         let td = &self.g.types[ty];
@@ -1554,6 +1682,24 @@ impl<'a, 'py> Builder<'a, 'py> {
     }
 }
 
+/// [`Builder::deliver`] for OrderedDict / defaultdict / Counter / deque frames.
+#[inline(never)]
+fn deliver_ext<'py>(kind: &mut Kind<'py>, v: Bound<'py, PyAny>) -> PyResult<()> {
+    match kind {
+        Kind::Mapping(m, pending) => match pending.take() {
+            None => {
+                *pending = Some(v);
+                Ok(())
+            }
+            Some(k) => m.set_item(k, v),
+        },
+        Kind::Deque(d) => d.call_method1(pyo3::intern!(d.py(), "append"), (v,)).map(|_| ()),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(
+            "internal error: unexpected frame kind",
+        )),
+    }
+}
+
 /// `object.__setattr__(obj, name, value)`.
 #[inline]
 fn set_attr(obj: &Bound<'_, PyAny>, name: &Bound<'_, PyString>, value: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -1576,6 +1722,29 @@ pub fn class_map<'py>(classes: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict
     Ok(m.downcast_into::<PyDict>()?)
 }
 
+/// Phase-2 buffers kept per thread between calls (see [`Scratch`]). They are
+/// always stored empty, so no Python object outlives a call; `'static` is
+/// only a placeholder lifetime.
+struct Scratch2 {
+    values: Vec<Bound<'static, PyAny>>,
+    frames: Vec<Frame<'static>>,
+    memo: Vec<Option<Bound<'static, PyAny>>>,
+    in_progress: Vec<bool>,
+    str_cache: Vec<Option<Bound<'static, PyAny>>>,
+    types: Vec<Option<RtType<'static>>>,
+}
+
+impl Scratch2 {
+    const EMPTY: Scratch2 = Scratch2 {
+        values: Vec::new(),
+        frames: Vec::new(),
+        memo: Vec::new(),
+        in_progress: Vec::new(),
+        str_cache: Vec::new(),
+        types: Vec::new(),
+    };
+}
+
 /// Materializes the root record (record 0) of a decoded graph.
 ///
 /// `classes` maps type names to caller-trusted classes (see [`class_map`]).
@@ -1591,31 +1760,60 @@ pub fn reconstruct<'py>(
     // SAFETY: plain C call with the GIL held; returns the current limit.
     let limit = unsafe { pyo3::ffi::Py_GetRecursionLimit() };
     // `memo`/`in_progress` are only ever indexed for shared records and
-    // `str_cache` only for shared strings, so skip allocating them (a
-    // noticeable cost for small payloads) when nothing is shared.
+    // `str_cache` only for shared strings, so skip filling them when nothing
+    // is shared.
     let any_shared = g.rec_refs.iter().any(|&c| c >= SHARED);
     let any_shared_str = g.str_refs.iter().any(|&c| c >= SHARED);
-    let none_vec = |len: usize| -> Vec<Option<_>> { std::iter::repeat_with(|| None).take(len).collect() };
+    let s = SCRATCH2.try_with(|c| c.replace(Scratch2::EMPTY)).unwrap_or(Scratch2::EMPTY);
+    let mut memo: Vec<Option<Bound<'py, PyAny>>> = recycle(s.memo);
+    if any_shared {
+        memo.resize_with(n, || None);
+    }
+    let mut in_progress = s.in_progress;
+    in_progress.clear();
+    if any_shared {
+        in_progress.resize(n, false);
+    }
+    let mut str_cache: Vec<Option<Bound<'py, PyAny>>> = recycle(s.str_cache);
+    if any_shared_str {
+        str_cache.resize_with(g.strings.len(), || None);
+    }
+    let mut types: Vec<Option<RtType<'py>>> = recycle(s.types);
+    types.resize_with(g.types.len(), || None);
+    let mut values: Vec<Bound<'py, PyAny>> = recycle(s.values);
+    values.reserve(n.min(64));
     let mut b = Builder {
         py,
         g,
-        memo: none_vec(if any_shared { n } else { 0 }),
-        in_progress: if any_shared { vec![false; n] } else { Vec::new() },
-        str_cache: if any_shared_str {
-            std::iter::repeat_with(|| None).take(g.strings.len()).collect()
-        } else {
-            Vec::new()
-        },
-        types: std::iter::repeat_with(|| None).take(g.types.len()).collect(),
+        memo,
+        in_progress,
+        str_cache,
+        types,
         classes,
-        values: Vec::with_capacity(n.min(64)),
+        values,
         max_depth: if limit > 0 { limit as usize } else { 1000 },
     };
-
-    let mut frames: Vec<Frame<'py>> = match b.resolve(0, 0)? {
-        Step::Value(v) => return Ok(v),
-        Step::Push(f) => vec![f],
+    let mut frames: Vec<Frame<'py>> = recycle(s.frames);
+    let result = drive(&mut b, &mut frames);
+    let s = Scratch2 {
+        values: recycle(b.values),
+        frames: recycle(frames),
+        memo: recycle(b.memo),
+        in_progress: recycle(b.in_progress),
+        str_cache: recycle(b.str_cache),
+        types: recycle(b.types),
     };
+    let _ = SCRATCH2.try_with(|c| c.set(s));
+    result
+}
+
+/// The reconstruction loop of [`reconstruct`] (explicit frame stack).
+fn drive<'py>(b: &mut Builder<'_, 'py>, frames: &mut Vec<Frame<'py>>) -> PyResult<Bound<'py, PyAny>> {
+    let g = b.g;
+    match b.resolve(0, 0)? {
+        Step::Value(v) => return Ok(v),
+        Step::Push(f) => frames.push(f),
+    }
 
     loop {
         let top = frames.last_mut().expect("frame stack is non-empty");
@@ -1623,21 +1821,42 @@ pub fn reconstruct<'py>(
         let mut child_frame = None;
         // Sequence frames collecting onto the value stack: tight loop for
         // leaf children.
-        if matches!(top.kind, Kind::ListLate | Kind::Tuple | Kind::FrozenSet | Kind::Build(_)) && depth < b.max_depth {
-            let ids = &g.data[top.off..top.off + 4 * top.total];
-            while top.next < top.total {
-                let o = 4 * top.next;
-                let cid = u32::from_le_bytes([ids[o], ids[o + 1], ids[o + 2], ids[o + 3]]) as usize;
-                if g.rec_refs[cid] >= SHARED {
-                    break;
+        if depth < b.max_depth {
+            match &mut top.kind {
+                Kind::ListLate | Kind::Tuple | Kind::FrozenSet | Kind::Build(_) => {
+                    let ids = &g.data[top.off..top.off + 4 * top.total];
+                    while top.next < top.total {
+                        let o = 4 * top.next;
+                        let cid = u32::from_le_bytes([ids[o], ids[o + 1], ids[o + 2], ids[o + 3]]) as usize;
+                        match b.quick(cid)? {
+                            Some(v) => b.values.push(v),
+                            None => break,
+                        }
+                        top.next += 1;
+                    }
                 }
-                let r = g.recs[cid];
-                if !is_leaf(r.tag) {
-                    break;
+                // Dicts: whole (key, value) pairs inserted directly.
+                Kind::Dict(d, pending) if pending.is_none() => {
+                    let ids = &g.data[top.off..top.off + 4 * top.total];
+                    while top.next + 1 < top.total {
+                        let o = 4 * top.next;
+                        let kid = u32::from_le_bytes([ids[o], ids[o + 1], ids[o + 2], ids[o + 3]]) as usize;
+                        let Some(k) = b.quick(kid)? else { break };
+                        let vid = u32::from_le_bytes([ids[o + 4], ids[o + 5], ids[o + 6], ids[o + 7]]) as usize;
+                        match b.quick(vid)? {
+                            Some(v) => {
+                                top.next += 2;
+                                d.set_item(k, v)?;
+                            }
+                            None => {
+                                top.next += 1;
+                                *pending = Some(k);
+                                break;
+                            }
+                        }
+                    }
                 }
-                let v = b.scalar(r)?;
-                b.values.push(v);
-                top.next += 1;
+                _ => {}
             }
         }
         while top.next < top.total {
@@ -1646,19 +1865,9 @@ pub fn reconstruct<'py>(
             // Fast paths: an already-built shared record, or an unshared leaf
             // (the common cases) skip the general resolver.
             if depth < b.max_depth {
-                if g.rec_refs[cid] >= SHARED {
-                    if let Some(obj) = &b.memo[cid] {
-                        let v = obj.clone();
-                        b.deliver(top, v)?;
-                        continue;
-                    }
-                } else {
-                    let r = g.recs[cid];
-                    if is_leaf(r.tag) {
-                        let v = b.scalar(r)?;
-                        b.deliver(top, v)?;
-                        continue;
-                    }
+                if let Some(v) = b.quick(cid)? {
+                    b.deliver(top, v)?;
+                    continue;
                 }
             }
             match b.resolve(cid, depth)? {
