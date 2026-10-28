@@ -1,4 +1,4 @@
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Iterable, Mapping
 
 __version__: str
 
@@ -15,6 +15,7 @@ def loads(
     *,
     allowlist: set[str] | None = None,
     hmac_key: bytes | None = None,
+    classes: Iterable[type] | Mapping[str, type] | None = None,
 ) -> Any: ...
 def _loads_prefix(
     data: bytes | bytearray | memoryview,
@@ -22,6 +23,7 @@ def _loads_prefix(
     allowlist: set[str] | None = None,
     hmac_key: bytes | None = None,
     offset: int = 0,
+    classes: Iterable[type] | Mapping[str, type] | None = None,
 ) -> tuple[Any, int]: ...
 def dump(
     obj: Any, file: BinaryIO, **kwargs: Any
@@ -31,4 +33,5 @@ def load(
     *,
     allowlist: set[str] | None = None,
     hmac_key: bytes | None = None,
+    classes: Iterable[type] | Mapping[str, type] | None = None,
 ) -> Any: ...

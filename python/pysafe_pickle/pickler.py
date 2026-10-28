@@ -70,6 +70,7 @@ class Unpickler:
         buffers: Any = None,
         allowlist: set[str] | None = None,
         hmac_key: bytes | None = None,
+        classes: Any = None,
     ):
         self._file = file
         self._fix_imports = fix_imports
@@ -78,6 +79,7 @@ class Unpickler:
         self._buffers = buffers
         self._allowlist = allowlist
         self._hmac_key = hmac_key
+        self._classes = classes
         # Bytes read from the file but not yet decoded: self._buf[self._pos:].
         self._buf = b""
         self._pos = 0
@@ -105,6 +107,7 @@ class Unpickler:
                         allowlist=self._allowlist,
                         hmac_key=self._hmac_key,
                         offset=self._pos,
+                        classes=self._classes,
                     )
                 except (DecodeError, HMACError):
                     # An incomplete record looks corrupt (or, when signed,

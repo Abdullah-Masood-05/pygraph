@@ -87,6 +87,7 @@ fn loads_from_slice(
     py: Python<'_>,
     bytes: &[u8],
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
     opts: LoadOpts<'_>,
 ) -> PyResult<(PyObject, usize)> {
     check_hmac_key(opts.hmac_key)?;
@@ -112,7 +113,8 @@ fn loads_from_slice(
         }
     }
 
-    Ok((decoder::reconstruct(py, &decoded)?.unbind(), used))
+    let classes = classes.map(decoder::class_map).transpose()?;
+    Ok((decoder::reconstruct(py, &decoded, classes.as_ref())?.unbind(), used))
 }
 
 /// Decodes any bytes-like object. `bytes` is borrowed directly (immutable);
@@ -123,15 +125,16 @@ fn loads_bytes_like(
     py: Python<'_>,
     data: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
     err_prefix: &str,
     opts: LoadOpts<'_>,
 ) -> PyResult<(PyObject, usize)> {
     if let Ok(b) = data.downcast::<PyBytes>() {
-        return loads_from_slice(py, b.as_bytes(), allowlist, opts);
+        return loads_from_slice(py, b.as_bytes(), allowlist, classes, opts);
     }
     if let Ok(ba) = data.downcast::<PyByteArray>() {
         let owned = ba.to_vec();
-        return loads_from_slice(py, &owned, allowlist, opts);
+        return loads_from_slice(py, &owned, allowlist, classes, opts);
     }
     let copied = PyMemoryView::from(data)
         .and_then(|mv| mv.call_method0("tobytes"))
@@ -147,47 +150,20 @@ fn loads_bytes_like(
             ))
         })?;
     let b = copied.downcast::<PyBytes>()?;
-    loads_from_slice(py, b.as_bytes(), allowlist, opts)
+    loads_from_slice(py, b.as_bytes(), allowlist, classes, opts)
 }
 
 #[pyfunction]
-fn _decode_only(data: &Bound<'_, PyBytes>) -> PyResult<usize> {
-    let d = decoder::decode(data.as_bytes())?;
-    Ok(d.strings.len())
-}
-
-#[pyfunction]
-fn _floor(py: Python<'_>, n: usize, kind: u8) -> PyResult<PyObject> {
-    match kind {
-        0 => Ok(PyList::new(py, (0..n).map(|_| py.None()))?.into_any().unbind()),
-        1 => {
-            let v: Vec<Bound<'_, PyAny>> = (0..n).map(|_| py.None().into_bound(py)).collect();
-            Ok(PyList::new(py, v)?.into_any().unbind())
-        }
-        2 => {
-            let l = PyList::empty(py);
-            for _ in 0..n {
-                l.append(py.None())?;
-            }
-            Ok(l.into_any().unbind())
-        }
-        _ => {
-            let v: Vec<Bound<'_, PyAny>> = (0..n as i64).map(|i| i.into_pyobject(py).unwrap().into_any()).collect();
-            Ok(PyList::new(py, v)?.into_any().unbind())
-        }
-    }
-}
-
-#[pyfunction]
-#[pyo3(signature = (data, *, allowlist=None, hmac_key=None))]
+#[pyo3(signature = (data, *, allowlist=None, hmac_key=None, classes=None))]
 fn loads(
     py: Python,
     data: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
     hmac_key: Option<integrity::HmacKey>,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let opts = LoadOpts { hmac_key: integrity::key_slice(&hmac_key), whole_buffer: true };
-    Ok(loads_bytes_like(py, data, allowlist, "", opts)?.0)
+    Ok(loads_bytes_like(py, data, allowlist, classes, "", opts)?.0)
 }
 
 /// Decodes exactly one payload from the start of `data` (or of
@@ -195,17 +171,18 @@ fn loads(
 /// `(obj, consumed_bytes)` (header + tables + records + HMAC tag if signed).
 /// An incomplete payload raises `DecodeError`.
 #[pyfunction]
-#[pyo3(signature = (data, *, allowlist=None, hmac_key=None, offset=0))]
+#[pyo3(signature = (data, *, allowlist=None, hmac_key=None, offset=0, classes=None))]
 fn _loads_prefix(
     py: Python,
     data: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
     hmac_key: Option<integrity::HmacKey>,
     offset: usize,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<(PyObject, usize)> {
     let opts = LoadOpts { hmac_key: integrity::key_slice(&hmac_key), whole_buffer: false };
     if offset == 0 {
-        return loads_bytes_like(py, data, allowlist, "", opts);
+        return loads_bytes_like(py, data, allowlist, classes, "", opts);
     }
     let b = data.downcast::<PyBytes>().map_err(|_| {
         pyo3::exceptions::PyTypeError::new_err("offset requires a bytes object")
@@ -214,7 +191,7 @@ fn _loads_prefix(
     if offset > bytes.len() {
         return Err(pyo3::exceptions::PyValueError::new_err("offset out of range"));
     }
-    loads_from_slice(py, &bytes[offset..], allowlist, opts)
+    loads_from_slice(py, &bytes[offset..], allowlist, classes, opts)
 }
 
 #[pyfunction]
@@ -246,12 +223,13 @@ fn dump(
 /// successive records. On non-seekable streams the bytes read after the
 /// payload are discarded (use `Unpickler` to read several records).
 #[pyfunction]
-#[pyo3(signature = (file, *, allowlist=None, hmac_key=None))]
+#[pyo3(signature = (file, *, allowlist=None, hmac_key=None, classes=None))]
 fn load(
     py: Python,
     file: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
     hmac_key: Option<integrity::HmacKey>,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let read_method = file.getattr("read")?;
     let data = read_method.call0()?;
@@ -260,7 +238,7 @@ fn load(
     }
     let opts = LoadOpts { hmac_key: integrity::key_slice(&hmac_key), whole_buffer: false };
     let (obj, used) =
-        loads_bytes_like(py, &data, allowlist, "file.read() did not return bytes: ", opts)?;
+        loads_bytes_like(py, &data, allowlist, classes, "file.read() did not return bytes: ", opts)?;
     let total = data.len()?;
     if used < total {
         let seekable = match file.getattr(pyo3::intern!(py, "seekable")) {
@@ -283,8 +261,6 @@ fn _pysafe_pickle(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_loads_prefix, m)?)?;
     m.add_function(wrap_pyfunction!(dump, m)?)?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
-    m.add_function(wrap_pyfunction!(_decode_only, m)?)?;
-    m.add_function(wrap_pyfunction!(_floor, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

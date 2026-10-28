@@ -48,6 +48,9 @@ struct StrEntry {
 }
 
 struct TypeEntry {
+    /// Writer-local discriminator (dataclass / namedtuple / enum) so that
+    /// different kinds of classes never share an entry; not written.
+    kind: u8,
     name: String,
     fields: Vec<String>,
     name_idx: u32,
@@ -223,11 +226,12 @@ impl RecordWriter {
     /// Register a dataclass type and return its type id, or `None` if the
     /// u16 id space is exhausted.
     ///
-    /// Entries are shared only between classes with the same name AND the same
-    /// field list (mirroring `TypeRegistry::register`), so distinct classes that
-    /// happen to share a `__name__` each get their own entry.
+    /// Entries are shared only between classes of the same `kind` with the same
+    /// name AND the same field list (mirroring `TypeRegistry::register`), so
+    /// distinct classes that happen to share a `__name__` each get their own entry.
     pub fn register_type(
         &mut self,
+        kind: u8,
         name: &str,
         fields: &[String],
         schema_version: u32,
@@ -235,7 +239,7 @@ impl RecordWriter {
         if let Some(pos) = self
             .types
             .iter()
-            .position(|t| t.name == name && t.fields.as_slice() == fields)
+            .position(|t| t.kind == kind && t.name == name && t.fields.as_slice() == fields)
         {
             return Some(pos as u16);
         }
@@ -246,6 +250,7 @@ impl RecordWriter {
             .map(|f| self.intern_str(f.as_bytes()))
             .collect();
         self.types.push(TypeEntry {
+            kind,
             name: name.to_string(),
             fields: fields.to_vec(),
             name_idx,
@@ -275,6 +280,24 @@ impl RecordWriter {
     #[inline]
     pub fn u16(&mut self, v: u16) {
         write_u16(&mut self.rec, v);
+    }
+
+    #[inline]
+    pub fn u8(&mut self, v: u8) {
+        self.rec.push(v);
+    }
+
+    #[inline]
+    pub fn u64(&mut self, v: u64) {
+        self.rec.extend_from_slice(&v.to_le_bytes());
+    }
+
+    /// u32 length + bytes (no tag), copying the payload. Caller checks the length.
+    #[inline]
+    pub fn len_bytes(&mut self, b: &[u8]) {
+        self.rec.reserve(4 + b.len());
+        self.u32(b.len() as u32);
+        self.rec.extend_from_slice(b);
     }
 
     #[inline]
