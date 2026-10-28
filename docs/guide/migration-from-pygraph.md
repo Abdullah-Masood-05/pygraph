@@ -46,6 +46,7 @@ Updating takes less than a minute. Search and replace:
 # Before (v1.0.x)
 import pygraph
 
+obj = {"name": "Alice"}
 data = pygraph.dumps(obj)
 restored = pygraph.loads(data)
 
@@ -58,6 +59,7 @@ def migrate_user(state):
 # After (v1.1.0+)
 import pysafe_pickle as psp
 
+obj = {"name": "Alice"}
 data = psp.dumps(obj)
 restored = psp.loads(data)
 
@@ -70,6 +72,7 @@ def migrate_user(state):
 
 ## Behavior Notes for Upgrading
 
-- Anything loaded from old `PYGR` files is rebuilt as a dynamically created class named after the original dataclass, exactly as with new files (not your original class).
-- Since v1.3.0, additional types are supported (arbitrary-size `int`, `bytearray`, `complex`, lone-surrogate strings). Old decoders can still read payloads that do not use them.
-- `hmac_key` raises `NotImplementedError` (HMAC is not yet implemented).
+- Anything loaded from old `PYGR` files is rebuilt exactly like new data: as a generated class named after the original dataclass, or as your own class if you pass it with `classes=` (v1.4.0+). Schema versions stored by v1.0.x (`__pygraph_version__`) drive migrations the same way.
+- Since v1.3.0, additional types are supported (arbitrary-size `int`, `bytearray`, `complex`, lone-surrogate strings), and v1.4.0 adds `datetime` types, `Decimal`, `UUID`, enums, namedtuples, `collections` types and more. Older versions cannot read payloads that use these new types, but they can read payloads that do not.
+- Since v1.4.0 the library raises `UnsafeTypeError`, `DecodeError`, `HMACError` and `SchemaVersionError`. `from pygraph.exceptions import ...` and `pygraph.HMACError` etc. resolve to the same classes. They subclass `TypeError`/`ValueError`, so existing handlers keep working.
+- `hmac_key` signing and verification work since v1.4.0 (they raised `NotImplementedError` before).

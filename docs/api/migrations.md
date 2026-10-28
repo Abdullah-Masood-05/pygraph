@@ -1,14 +1,23 @@
 # Schema Migrations API Reference
 
-Functions and decorators for managing schema versions and migrating serialized dataclasses.
+Functions and decorators for managing schema versions and migrating serialized dataclasses. For a walkthrough, see the [Schema Evolution guide](../guide/schema-evolution.md).
 
 ---
 
 ## How migration is triggered
 
-On `loads`, a dataclass record is migrated when its serialized schema version and the version of the class it is loaded into are both greater than `0` and differ. The serialized version comes from the original class attribute `__pysafe_pickle_version__` (or legacy `__pygraph_version__`) at `dumps` time. The "current" version is read from the dynamic class created for the loaded type (see `make_class` in [Core Functions](./core.md)), not from your original class, so it must be set on that class (e.g. with `set_schema_version`) before the first `loads` of that type in the process; the result is cached afterwards.
+Each dataclass type in a payload carries the schema version its class had at `dumps` time: the class attribute `__pysafe_pickle_version__` (or legacy `__pygraph_version__`), `0` if absent.
 
-Migrated fields are set on the loaded instance. Keys returned by the migration that are not fields of the loaded class are stored as a dict in the `__pysafe_pickle_extra__` attribute (also `__pygraph_extra__`). A migration must return a `dict`, otherwise `TypeError: Migration function must return a dict` is raised.
+On `loads`/`load`/`Unpickler.load`, a dataclass record is migrated when:
+1. its class is passed in `classes=` (the "current" version is read from that class), and
+2. the stored version and the current version are both greater than `0`, and
+3. they differ.
+
+Then the stored fields are collected into a `dict`, `apply_migrations(type_name, state, stored_version, current_version)` runs the chain registered for the **stored** type name, and the resulting `dict` is applied to a new instance of your class (created without calling `__init__`): fields absent from the result get their defaults, a missing field without a default raises `TypeError`, and a key that is not a field of the class raises `TypeError`. The version keys that `apply_migrations` adds are ignored. A migration must return a `dict` (`TypeError: Migration function must return a dict` otherwise), and a missing chain raises `SchemaVersionError`.
+
+If the stored version is **higher** than the class's version (data from a newer release read by older code), no migration function runs; the stored fields are applied as they are, with the same missing/unknown field checks.
+
+Without `classes=`, dataclasses load as generated stand-in classes that carry no version, so no migration runs and the object has exactly the stored fields. You can still migrate by hand with `apply_migrations` (see the guide).
 
 ---
 
@@ -19,7 +28,7 @@ Decorator to register a migration function for a dataclass between two schema ve
 ### Parameters:
 - **`from_version`** (*int*): The source schema version.
 - **`to_version`** (*int*): The target schema version.
-- **`type_name`** (*str*, optional): The bare class name of the dataclass (e.g. `"UserProfile"`). If omitted it is inferred as everything before the last `.` of `func.__qualname__` (e.g. the class name for a method defined in a class body). For a module-level function this yields the function's own name, so pass `type_name` explicitly there.
+- **`type_name`** (*str*, optional): The bare class name the data was stored under (e.g. `"UserProfile"`). If omitted it is inferred as everything before the last `.` of `func.__qualname__` (e.g. the class name for a method defined in a class body). For a module-level function this yields the function's own name, so pass `type_name` explicitly there.
 
 ### Example:
 ```python
@@ -29,6 +38,9 @@ import pysafe_pickle as psp
 def upgrade_v1_to_v2(state: dict) -> dict:
     state["display_name"] = state.get("username", "")
     return state
+
+for from_v, to_v, func in psp.get_migrations("UserProfile"):
+    print(from_v, to_v, func.__name__)  # 1 2 upgrade_v1_to_v2
 ```
 
 ---
@@ -44,7 +56,7 @@ Retrieves all registered `(from_version, to_version, func)` tuples for a specifi
 Resolves the ordered chain of migration functions needed to transform a type from `from_version` to `to_version`. At each step the registered migration starting at the current version with the highest `to_version` not exceeding the target is chosen. Returns `[]` if `from_version >= to_version`.
 
 ### Raises:
-- **`ValueError`**: If no valid path exists between the two versions (`No migration path from version 1 to 2 for type 'X'`).
+- **`SchemaVersionError`** (a `ValueError`): If no valid path exists between the two versions (`No migration path from version 1 to 2 for type 'X'`).
 
 ---
 
@@ -53,15 +65,25 @@ Resolves the ordered chain of migration functions needed to transform a type fro
 Executes the resolved migration chain against a copy of the provided `state` dictionary. After each step it sets `__pysafe_pickle_version__` and `__pygraph_version__` keys in the state to that step's target version. If `from_version >= to_version`, `state` is returned unchanged.
 
 ```python
-psp.apply_migrations("UserProfile", {"username": "x"}, 1, 2)
+import pysafe_pickle as psp
+
+@psp.migrate(from_version=1, to_version=2, type_name="UserProfile")
+def upgrade_v1_to_v2(state: dict) -> dict:
+    state["display_name"] = state.get("username", "")
+    return state
+
+print(psp.apply_migrations("UserProfile", {"username": "x"}, 1, 2))
 # {'username': 'x', 'display_name': 'x', '__pysafe_pickle_version__': 2, '__pygraph_version__': 2}
 ```
+
+### Raises:
+- **`SchemaVersionError`**: No migration path.
 
 ---
 
 ## `get_schema_version(obj: Any) -> int | None`
 
-Looks for `__pysafe_pickle_version__`, then legacy `__pygraph_version__`, on the object (which includes attributes inherited from its class). Returns `None` if the object is not versioned.
+Looks for `__pysafe_pickle_version__`, then legacy `__pygraph_version__`, on the object (which includes attributes inherited from its class). Returns `None` if the object is not versioned. Objects loaded with `classes=` report your class's version; generated stand-in objects (no `classes=`) return `None`.
 
 ---
 

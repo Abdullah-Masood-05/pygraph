@@ -34,7 +34,7 @@ export default withMermaid(
         { text: 'Architecture', link: '/architecture/binary-format' },
         { text: 'Benchmarks', link: '/benchmarks/performance' },
         {
-          text: 'v1.3.4',
+          text: 'v1.4.0',
           items: [
             { text: 'PyPI Package', link: 'https://pypi.org/project/pysafe-pickle/' },
             { text: 'GitHub Releases', link: 'https://github.com/Abdullah-Masood-05/pygraph/releases' },
@@ -58,6 +58,7 @@ export default withMermaid(
               { text: 'Schema Evolution', link: '/guide/schema-evolution' },
               { text: 'Streaming & PickleBuffer', link: '/guide/streaming-and-buffers' },
               { text: 'Security & Allowlist', link: '/guide/security-and-allowlist' },
+              { text: 'Reading Existing Pickle Files', link: '/guide/pickle-compat' },
             ],
           },
         ],
@@ -68,6 +69,7 @@ export default withMermaid(
               { text: 'Core Functions (dumps/loads)', link: '/api/core' },
               { text: 'Streaming (Pickler/Unpickler)', link: '/api/streaming' },
               { text: 'Schema Migrations', link: '/api/migrations' },
+              { text: 'Pickle Compatibility', link: '/api/pickle-compat' },
               { text: 'Exceptions', link: '/api/exceptions' },
             ],
           },

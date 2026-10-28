@@ -1,8 +1,12 @@
 # Performance & Benchmarks
 
-`pysafe-pickle` is a Rust engine (PyO3) that serializes Python object graphs with **zero arbitrary code execution (ACE)**. In v1.3.2 `dumps` is faster than the C `pickle` module (protocol 5) on every benchmark shape we measure. `loads` is mixed: faster on dataclass-heavy data, slightly slower on some container-heavy shapes. Payloads are larger than pickle's, typically **1.0x to 2.8x**.
+`pysafe-pickle` is a Rust engine (PyO3) that serializes Python object graphs with **zero arbitrary code execution (ACE)**. `dumps` is faster than the C `pickle` module (protocol 5) on almost every benchmark shape we measure. `loads` is mixed: faster on dataclass-heavy data, **slower on some container-heavy shapes**. Payloads are **larger** than pickle's, typically **1.0x to 2.8x**.
 
-All numbers below were measured on `pysafe-pickle` **v1.3.2** against stdlib `pickle` (protocol 5), using the 16 data shapes in `benchmarks/bench_data.py`. Each figure is the best of 5 `timeit` repeats, in microseconds (µs). Absolute values depend on your CPU and Python version; the ratios are what matter.
+The timing tables below were measured on `pysafe-pickle` **v1.3.2** against stdlib `pickle` (protocol 5), using the 16 data shapes in `benchmarks/bench_data.py`. Each figure is the best of 5 `timeit` repeats, in microseconds (µs). Absolute values depend on your CPU and Python version; the ratios are what matter.
+
+::: info v1.4.0
+The encoding of these shapes did not change in v1.4.0: payload sizes are byte-for-byte identical, and a re-run of the same script on v1.4.0 gave the same ratios within measurement noise, with one exception: `dumps` of 1 MB of `bytes` measured about equal to pickle (0.99x to 1.1x). The new stdlib types, `classes=` and the pickle reader are not part of these tables. See [HMAC overhead](#hmac-overhead) for the cost of signing.
+:::
 
 ---
 
@@ -53,7 +57,7 @@ Python's built-in `pickle` module (implemented in C as `_pickle`) is fast, but i
 | **Bytes (1 MB)** | 259 µs | 235 µs | 1.1× faster |
 
 ::: tip Summary
-- **`dumps`**: faster than pickle on all 16 shapes, from about 1.05× (raw bytes) to 5.8× (lists of dataclasses).
+- **`dumps`**: faster than pickle on all 16 shapes in v1.3.2, from about 1.05× (raw bytes) to 5.8× (lists of dataclasses). In v1.4.0, raw bytes are about equal.
 - **`loads`**: faster on dataclasses, lists of records, floats and bytes; roughly equal on small nested lists and short strings; up to about 1.3× slower on wide dicts, shared-reference graphs, mixed containers and int lists.
 - Pickle is not a like-for-like competitor: it will run arbitrary code embedded in a payload, while `pysafe-pickle` validates every record, bounds every allocation and never calls user-controlled callables.
 :::
@@ -83,27 +87,34 @@ Python's built-in `pickle` module (implemented in C as `_pickle`) is fast, but i
 | **Nested list (depth 5)** | 32 B | 79 B | 2.47× |
 | **Nested list (depth 20)** | 77 B | 214 B | 2.78× |
 
-If payload size matters more than safety features, compress the output (for example with `zlib` or `zstd`) or use pickle for trusted data.
+If payload size matters more than safety features, compress the output (for example with `zlib` or `zstd`) or use pickle for trusted data. A signed payload (`hmac_key=`) is 32 bytes larger.
+
+---
+
+## HMAC Overhead {#hmac-overhead}
+
+Signing and verifying add one HMAC-SHA256 pass over the payload. On the machine used above (v1.4.0) that was roughly **1 ms per MB** of payload for each of `dumps` and `loads`: noticeable for multi-megabyte blobs, negligible for small records.
 
 ---
 
 ## Security & Reliability Comparison
 
-Performance is meaningless if the deserializer can crash or be exploited by malicious inputs. Here is how `pysafe-pickle v1.3.2` compares with standard `pickle`:
+Performance is meaningless if the deserializer can crash or be exploited by malicious inputs. Here is how `pysafe-pickle v1.4.0` compares with standard `pickle`:
 
-| Security & Stability Dimension | Standard `pickle` | `pysafe-pickle` (v1.3.2) |
+| Security & Stability Dimension | Standard `pickle` | `pysafe-pickle` (v1.4.0) |
 | :--- | :---: | :---: |
 | **Arbitrary Code Execution (ACE)** | <span style="color:#ef4444">CRITICAL VULNERABILITY</span><br>(Executes arbitrary callables via `__reduce__`) | <span style="color:#10b981">SAFE</span><br>(No `eval` or dynamic method dispatch) |
 | **Untrusted Capacity Bounds** | <span style="color:#ef4444">Vulnerable</span> | <span style="color:#10b981">Protected</span><br>(Allocations strictly bounded by remaining bytes) |
 | **Malformed Input Validation** | <span style="color:#ef4444">Executes opcodes as it reads</span> | <span style="color:#10b981">Validated</span><br>(Every child, record, string and type index is bounds-checked before objects are built) |
 | **Deep Recursion / Stack Overflow** | <span style="color:#ef4444">C Crash</span> | <span style="color:#10b981">Protected</span><br>(Iterative heap work stacks; clean Python `RecursionError`) |
 | **Cyclic Immutable Sequences** | Reconstructs tuples via state | <span style="color:#10b981">Validated</span><br>(Explicitly rejects unconstructible cyclic tuples) |
-| **GIL Concurrency** | Holds the GIL | <span style="color:#10b981">Released GIL</span><br>(Uses `py.allow_threads` during pure Rust encode/decode) |
-| **Schema Evolution** | None (Brittle) | Supported (Dual `PSPK` and `PYGR` headers) |
+| **Tamper Detection** | None | <span style="color:#10b981">HMAC-SHA256</span><br>(Verified before decoding when `hmac_key` is given) |
+| **GIL Concurrency** | Holds the GIL | <span style="color:#10b981">Partly released</span><br>(Validation and HMAC for inputs of 64 KiB+, final output assembly for 8 MiB+) |
+| **Schema Evolution** | None (Brittle) | Versioned types, migrations run on load with `classes=` |
 
 ---
 
-## Architectural Performance Pillars in v1.3.x
+## Architectural Performance Pillars
 
 1. **Breadth-First Streaming Encoder**: The graph walker assigns record ids in breadth-first order and writes records straight into the output buffer, without building an intermediate object tree.
 2. **Direct Shared/Cyclic References**: A shared or cyclic object reuses the record id of its first occurrence directly, so no `Reference` records are emitted when encoding. (The decoder still accepts `Reference` records for backward compatibility.)
@@ -111,7 +122,7 @@ Performance is meaningless if the deserializer can crash or be exploited by mali
 4. **String-Object Caching**: Strings that appear more than once in a payload are materialised once and reused as the same Python object. The cache is skipped when no string is shared.
 5. **Fast Type Pointer Checks**: Exact PyO3 type pointer comparisons (`is_exact_instance_of::<PyDict>()`) instead of string-based type name checks.
 6. **Iterative Heap Stacks**: Explicit heap work stacks in both encoder and decoder remove C call-stack recursion, so extremely deep structures raise a clean error instead of overflowing.
-7. **GIL-Free Serialization**: Pure Rust encoding and decoding release the Python Global Interpreter Lock via `py.allow_threads`.
+7. **GIL Release for Large Inputs**: Phase-1 validation and HMAC work release the Python Global Interpreter Lock via `py.allow_threads` for inputs of 64 KiB or more; object construction always needs the GIL.
 8. **Cache-Friendly `FxHashMap`**: Internal hash maps use `rustc-hash::FxHashMap`, cutting hash overhead during traversal.
 
 ---

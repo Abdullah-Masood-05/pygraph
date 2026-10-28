@@ -22,50 +22,48 @@ hero:
 features:
   - icon: 🛡️
     title: No Code Execution on Load
-    details: Unlike Python's standard pickle, pysafe-pickle never invokes __reduce__, __setstate__, exec, or eval during deserialization. Only a fixed set of built-in types and dataclasses can be rebuilt.
+    details: Unlike Python's standard pickle, pysafe-pickle never invokes __reduce__, __setstate__, __init__, exec, or eval during deserialization, and never imports a module named in the data. Only a fixed set of types can be rebuilt.
   - icon: ⚡
     title: Rust-Native Speed
-    details: Traversal, encoding, and decoding are implemented in Rust with PyO3. dumps is faster than pickle on most data shapes; loads is roughly on par, and slower on some. Payloads are larger than pickle's.
+    details: Traversal, encoding, and decoding are implemented in Rust with PyO3. dumps is faster than pickle on most data shapes; loads is faster on dataclass-heavy data and slower on some shapes. Payloads are larger than pickle's.
+  - icon: 🧩
+    title: Your Classes, Real Types
+    details: Pass classes= to get real dataclass, enum and namedtuple instances back. Dates and times, Decimal, UUID, Fraction, paths and collections types are supported out of the box.
   - icon: 🔄
-    title: Schema Versions & Migrations
-    details: Dataclass schema versions are embedded in the payload, and @psp.migrate registers migration chains. Migrations are applied explicitly via apply_migrations (see the guide for current limits).
-  - icon: 📦
-    title: Pickle-Style API
-    details: dumps, loads, dump, load, plus Pickler / Unpickler classes. loads accepts bytes, bytearray, and memoryview. Only protocol 5 is supported.
-  - icon: 🔁
-    title: Cycles & Shared References
-    details: Cyclic and shared references are preserved for lists, dicts, sets, bytearrays, and dataclasses, including self-referential dataclasses.
+    title: Automatic Schema Migrations
+    details: Dataclass schema versions are embedded in the payload. Register @psp.migrate functions and they run during loads when the stored version differs from your class.
   - icon: 🔐
-    title: Type Allowlist
-    details: Pass an allowlist to loads to restrict which dataclass types may be reconstructed. HMAC signing is not yet supported (hmac_key raises NotImplementedError).
+    title: HMAC Signing & Allowlist
+    details: Sign payloads with HMAC-SHA256 (hmac_key=) and verify them before anything is decoded. Restrict which class names a payload may contain with an allowlist.
+  - icon: 📦
+    title: Pickle-Style API & Streams
+    details: dumps, loads, dump, load, plus Pickler / Unpickler for multi-record streams. Read existing .pkl files safely with load_pickle and convert them with convert_pickle.
 ---
 
 ## Supported Types
 
-`None`, `bool`, arbitrary-size `int`, `float`, `complex`, `str` (including lone surrogates), `bytes`, `bytearray`, `list`, `tuple`, `dict`, `set`, `frozenset`, and `@dataclass` instances. Anything else raises `TypeError: Unsupported type`.
+`None`, `bool`, arbitrary-size `int`, `float`, `complex`, `str` (including lone surrogates), `bytes`, `bytearray`, `list`, `tuple`, `dict`, `set`, `frozenset`, `datetime`/`date`/`time`/`timedelta`/`timezone`, `ZoneInfo`, `Decimal`, `UUID`, `Fraction`, `range`, `slice`, `Ellipsis`, `NotImplemented`, `pathlib` paths, `OrderedDict`, `defaultdict` (builtin factories), `Counter`, `deque`, `@dataclass` instances, namedtuples and `Enum` members. Anything else raises `UnsafeTypeError: Unsupported type`.
 
 ## Quick Example
 
 ```python
-import pysafe_pickle as psp
+import datetime as dt
 from dataclasses import dataclass
+import pysafe_pickle as psp
 
 @dataclass
 class User:
     name: str
-    age: int
+    joined: dt.date
     email: str = ""
-    __pysafe_pickle_version__ = 1
 
-# Serialize with Rust
-data = psp.dumps(User(name="Alice", age=30, email="alice@example.com"))
+# Serialize (and sign) with Rust
+data = psp.dumps(User("Alice", dt.date(2026, 10, 28)), hmac_key=b"secret")
 
-# Deserialize without arbitrary code execution
-user = psp.loads(data)
-assert user.name == "Alice"
-# Note: `user` is an instance of a dynamically created class named "User",
-# not of your original class.
-assert type(user).__name__ == "User" and type(user) is not User
+# Verify, then deserialize without running any code from the payload
+user = psp.loads(data, hmac_key=b"secret", classes=[User])
+print(user)  # User(name='Alice', joined=datetime.date(2026, 10, 28), email='')
+print(isinstance(user, User))  # True
 ```
 
 ## Community & Ecosystem

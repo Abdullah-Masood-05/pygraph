@@ -1,27 +1,30 @@
 # Security & Allowlist
 
-`pysafe-pickle` was engineered with a security-first architecture.
+`pysafe-pickle` was engineered with a security-first architecture. This page covers what loading untrusted data can and cannot do, how to restrict which types a payload may contain, and how to detect tampering.
 
 ---
 
 ## 1. No Code Execution on Load
 
-Unlike standard Python `pickle`, `pysafe-pickle` **never** calls:
+Unlike standard Python `pickle`, `pysafe-pickle` **never** calls, during deserialization:
 - `__reduce__` or `__reduce_ex__`
 - `__getstate__` or `__setstate__`
+- `__init__` or `__post_init__` of your classes
 - `exec()` or `eval()`
 
-Only a fixed set of types can be encoded at all (see [supported types](/guide/what-is-pysafe-pickle#supported-types)). When an object is loaded, the Rust engine reads the explicit type metadata and rebuilds built-in containers directly. Dataclass instances are created with `object.__new__` and their fields set directly, so your `__init__` and `__post_init__` never run.
+and it never imports a module named in the payload. Only the [supported types](/guide/what-is-pysafe-pickle#supported-types) can be encoded at all. When an object is loaded, the Rust engine reads the explicit type metadata and rebuilds built-in and stdlib values directly. Dataclass instances are created with `object.__new__` and their fields set directly.
+
+Your own classes are only used when you list them in `classes=`. That is a decision you make in code, not something the payload can request. A listed class can still run a little of its own code on load: enum members are looked up with `Cls[name]` or `Cls(value)`, and namedtuples are built with `_make`. Treat the classes you list as trusted code.
 
 ::: warning Not a substitute for resource limits
-Decoding is bounded against malformed input (truncated data, bad indices, and so on raise `ValueError`), but you should still cap the size of payloads you accept from untrusted sources.
+Decoding is bounded against malformed input: every count and index is checked against the payload before anything is allocated, and corrupt data raises `DecodeError`. Still cap the size of payloads you accept from untrusted sources.
 :::
 
 ---
 
 ## 2. Type Allowlisting
 
-In multi-tenant or untrusted environments, you can restrict which **dataclass names** may appear in a payload. Pass a `set` of names to `loads`, `load`, or `Unpickler(allowlist=...)`:
+In multi-tenant or untrusted environments you can restrict which **class names** may appear in a payload. Pass a `set` of names to `loads`, `load`, or `Unpickler(allowlist=...)`. It applies to dataclasses, enums and namedtuples, and it is checked before any object is built:
 
 ```python
 import pysafe_pickle as psp
@@ -31,56 +34,65 @@ from dataclasses import dataclass
 class Record:
     token: str
 
-@dataclass
-class Other:
-    value: int
-
 data = psp.dumps(Record("secret"))
 
-# Allowed: the dataclass name is in the set
-print(psp.loads(data, allowlist={"Record"}))   # Record(token='secret')
+print(psp.loads(data, allowlist={"Record"}, classes=[Record]))  # Record(token='secret')
 
-# Rejected: "Other" is not the type in the payload
 try:
     psp.loads(data, allowlist={"Other"})
-except TypeError as e:
-    print(e)    # Type 'Record' is not in the allowlist
+except psp.UnsafeTypeError as e:
+    print(e)  # Type 'Record' is not in the allowlist
 ```
 
 Details to be aware of:
 - The allowlist must be a `set` (a `list` raises `TypeError`).
-- Entries are matched against the dataclass `__name__` (for example `"Record"`), not a module-qualified path.
-- Built-in types (`dict`, `list`, `int`, ...) are always allowed. Entries like `"builtins.dict"` are accepted in the set but have no effect, and an empty set still permits built-in data.
-- A rejected type raises `TypeError`, not `UnsafeTypeError` (that exception class exists for compatibility but is not raised by the current decoder).
-- Dataclasses are matched by name only, so two different classes with the same name are indistinguishable to the allowlist.
+- Entries are matched against the bare class `__name__` (for example `"Record"`), not a module-qualified path.
+- Built-in and stdlib types (`dict`, `datetime`, `Decimal`, `OrderedDict`, ...) are always allowed. An empty set still permits them.
+- A rejected type raises `UnsafeTypeError`, which is a `TypeError` subclass, so older `except TypeError` code still catches it.
+- Names are all that is checked, so two classes with the same name are indistinguishable to the allowlist. Combine it with `classes=` to control exactly which classes are instantiated.
 
 ---
 
-## 3. Tamper Detection (HMAC): Not Yet Supported
+## 3. Tamper Detection (HMAC) {#hmac}
 
-The `hmac_key` parameter exists on `dumps` (and on `Pickler`) as a reserved placeholder, but HMAC signing and verification are **not implemented**. Passing a key raises an error rather than silently producing unsigned data:
+If a payload passes through storage or a network you do not fully control, sign it. With `hmac_key`, `dumps` appends an HMAC-SHA256 tag computed over the entire payload, and `loads` checks it, in constant time, **before** decoding anything:
 
 ```python
 import pysafe_pickle as psp
 
+KEY = b"load-this-from-your-secret-store"
+
+blob = psp.dumps({"user": "admin", "role": "viewer"}, hmac_key=KEY)
+print(psp.loads(blob, hmac_key=KEY))  # {'user': 'admin', 'role': 'viewer'}
+
+forged = blob.replace(b"viewer", b"owner!")
 try:
-    psp.dumps({"user": "admin"}, hmac_key=b"secret")
-except NotImplementedError as e:
-    print(e)    # HMAC signatures are not yet supported
+    psp.loads(forged, hmac_key=KEY)
+except psp.HMACError as e:
+    print(e)  # HMAC verification failed: payload was tampered with or the key is wrong
 ```
 
-`loads` does not accept `hmac_key`. `psp.HMACError` is defined but is not raised today. If you need integrity protection now, sign the bytes yourself:
+The rules are strict on purpose:
 
-```python
-import hmac, hashlib
-import pysafe_pickle as psp
+| Payload | Key passed to `loads` | Result |
+| :--- | :--- | :--- |
+| signed | correct key | Loaded |
+| signed | wrong key, or payload modified/truncated | `HMACError: HMAC verification failed: ...` |
+| signed | none | `HMACError: payload is signed; pass hmac_key` |
+| unsigned | any key | `HMACError: payload is not signed` |
+| unsigned | none | Loaded (no integrity check) |
 
-KEY = b"your-secret-key"
-blob = psp.dumps({"user": "admin"})
-tag = hmac.new(KEY, blob, hashlib.sha256).digest()
+The last-but-one row means an attacker cannot strip the signature and send unsigned data to code that expects a signed payload. `HMACError` is a `ValueError` subclass. An empty key raises `ValueError` in both `dumps` and `loads`; any bytes-like key (`bytes`, `bytearray`, `memoryview`) works.
 
-# ... transmit blob + tag ...
+`hmac_key` is accepted by `dumps`, `loads`, `dump`, `load`, `Pickler` and `Unpickler`. In a stream, every record is signed and verified separately.
 
-assert hmac.compare_digest(tag, hmac.new(KEY, blob, hashlib.sha256).digest())
-data = psp.loads(blob)
-```
+Things HMAC does **not** do:
+- It does not encrypt; anyone can still read the payload.
+- It does not stop replay of an old, validly signed payload. Put a timestamp or nonce inside the data if that matters.
+- Its security rests entirely on the key. Keep it out of source control and rotate it like any other secret.
+
+---
+
+## 4. Reading Untrusted `.pkl` Files
+
+Existing standard pickle files can be read with `psp.load_pickle`, which uses a restricted interpreter instead of `pickle.load`. See [Reading Existing Pickle Files](/guide/pickle-compat).

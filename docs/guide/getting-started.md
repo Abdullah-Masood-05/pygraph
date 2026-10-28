@@ -20,109 +20,134 @@ poetry add pysafe-pickle
 
 `pysafe-pickle` has no runtime dependencies and requires Python 3.10 or newer (tested on Python 3.10 through 3.15). A single abi3 wheel covers all of these versions; free-threaded builds are not supported.
 
-::: warning NumPy / PyTorch not supported yet
-There are no `numpy`, `torch`, or `all` extras, and NumPy arrays or PyTorch tensors cannot be serialized (they raise `TypeError: Unsupported type`). Convert them to lists or `bytes` first.
+::: warning NumPy / PyTorch not supported
+There are no `numpy`, `torch`, or `all` extras, and NumPy arrays or PyTorch tensors cannot be serialized (they raise `UnsafeTypeError: Unsupported type`). Convert them to lists or `bytes` first.
 :::
 
 ---
 
 ## Quickstart
 
-The core API mirrors the shape of Python's standard `pickle` module (`dumps`, `loads`, `dump`, `load`). Only pickle protocol 5 is supported, and only the types listed in [What is pysafe-pickle?](/guide/what-is-pysafe-pickle#supported-types) can be serialized.
+The core API mirrors the shape of Python's standard `pickle` module (`dumps`, `loads`, `dump`, `load`, `Pickler`, `Unpickler`). Only pickle protocol 5 is supported, and only the types listed in [What is pysafe-pickle?](/guide/what-is-pysafe-pickle#supported-types) can be serialized.
 
 ### 1. Basic Serialization (`dumps` and `loads`)
 
 ```python
+import datetime as dt
+import uuid
+from decimal import Decimal
 import pysafe_pickle as psp
 
-# Nested structures, including sets, tuples and bytes
 data = {
-    "title": "Project Metrics",
+    "id": uuid.UUID("12345678-1234-5678-1234-567812345678"),
+    "created": dt.datetime(2026, 10, 28, 9, 30),
+    "total": Decimal("19.99"),
     "values": [1, 2, 3, 4.5],
-    "flags": {True, False},
-    "metadata": (None, "v1.1.0", b"\x00\x01\x02"),
+    "metadata": (None, "v1.4.0", b"\x00\x01\x02"),
 }
 
-# Serialize into safe binary bytes
 binary_blob = psp.dumps(data)
-
-# Deserialize back into Python objects
 restored = psp.loads(binary_blob)
 
-assert restored["values"] == [1, 2, 3, 4.5]
+print(restored == data)  # True
+print(restored["created"])  # 2026-10-28 09:30:00
 ```
 
 Besides `bytes`, `loads` also accepts `bytearray` and `memoryview` inputs.
 
 ### 2. File I/O (`dump` and `load`)
 
-Stream serialized objects directly to and from file-like objects:
-
 ```python
 import pysafe_pickle as psp
 
-# Write to file
 with open("checkpoint.psp", "wb") as f:
+    psp.dump({"epoch": 41, "loss": 0.0131}, f)
     psp.dump({"epoch": 42, "loss": 0.0125}, f)
 
-# Read from file
 with open("checkpoint.psp", "rb") as f:
-    checkpoint = psp.load(f)
-
-print(checkpoint)  # {'epoch': 42, 'loss': 0.0125}
+    print(psp.load(f))  # {'epoch': 41, 'loss': 0.0131}
+    print(psp.load(f))  # {'epoch': 42, 'loss': 0.0125}
 ```
 
-### 3. Handling Cyclic Graphs
+Each `load(f)` reads one record and leaves the file positioned after it. For long streams of records, see [Streaming](/guide/streaming-and-buffers).
 
-`pysafe-pickle` tracks object identities, so cycles and shared references survive a round trip. This also works for self-referential dataclasses:
+### 3. Your Own Classes
+
+Pass your dataclasses (and enums and namedtuples) with `classes=` to get real instances back:
+
+```python
+import enum
+from dataclasses import dataclass
+import pysafe_pickle as psp
+
+class Role(enum.Enum):
+    ADMIN = "admin"
+    USER = "user"
+
+@dataclass
+class User:
+    name: str
+    role: Role = Role.USER
+
+blob = psp.dumps([User("alice", Role.ADMIN), User("bob")])
+users = psp.loads(blob, classes=[User, Role])
+
+print(users)  # [User(name='alice', role=<Role.ADMIN: 'admin'>), User(name='bob', role=<Role.USER: 'user'>)]
+print(isinstance(users[0], User))  # True
+```
+
+Without `classes=`, dataclasses come back as instances of a generated class with the same name and fields (`isinstance` is `False`), and enum members cannot be loaded at all (`UnsafeTypeError`). `__init__` and `__post_init__` never run on load.
+
+### 4. Handling Cyclic Graphs
+
+`pysafe-pickle` tracks object identities, so cycles and shared references survive a round trip:
 
 ```python
 import pysafe_pickle as psp
 
 node_a = {"name": "Node A"}
 node_b = {"name": "Node B"}
-
-# Create mutual cycle
 node_a["neighbor"] = node_b
 node_b["neighbor"] = node_a
 
-# Dumps and loads preserve exact cycle topologies without recursion errors
-encoded = psp.dumps(node_a)
-decoded = psp.loads(encoded)
-
-assert decoded["neighbor"]["neighbor"] is decoded
+decoded = psp.loads(psp.dumps(node_a))
+print(decoded["neighbor"]["neighbor"] is decoded)  # True
 ```
 
-### 4. Extended Scalar Types
+### 5. Signing Payloads
 
 ```python
 import pysafe_pickle as psp
 
-for value in [2**200, bytearray(b"ab"), 1 + 2j, "a\ud800b"]:
-    assert psp.loads(psp.dumps(value)) == value
+blob = psp.dumps({"user": "admin"}, hmac_key=b"secret")
+print(psp.loads(blob, hmac_key=b"secret"))  # {'user': 'admin'}
 ```
+
+A tampered payload or a wrong key raises `HMACError`. See [Security & Allowlist](/guide/security-and-allowlist#hmac).
 
 ---
 
-## What's New in 1.3
+## What's New in 1.4
 
-Highlights from [`CHANGELOG.md`](https://github.com/Abdullah-Masood-05/pygraph/blob/main/CHANGELOG.md) (1.3.0 to 1.3.2):
+Highlights from [`CHANGELOG.md`](https://github.com/Abdullah-Masood-05/pygraph/blob/main/CHANGELOG.md):
 
-- **Performance**: `dumps` is faster than stdlib `pickle` on the benchmarked shapes, and `loads` matches or beats it on most (not all) shapes. Dataclass-heavy payloads see the largest gains. Payloads are larger than pickle's. See [Benchmarks](/benchmarks/performance) for numbers.
-- **New types**: arbitrary-precision `int`, `bytearray` (identity and cycles preserved), `complex`, and `str` containing lone surrogates.
-- **`loads` input**: accepts `bytes`, `bytearray`, and `memoryview`.
-- **Dataclass fixes**: self-referential cycles load without `RecursionError`; `ClassVar` and `InitVar` pseudo-fields are no longer serialized; two distinct dataclasses sharing a `__name__` no longer corrupt each other; fields named `self` work; out-of-range string indices in the type table raise `ValueError`.
-- **Wire format**: shared and cyclic references are encoded inline (smaller, faster to decode). The format remains v1-compatible.
-- **1.3.1 / 1.3.2**: dead code removal, Python 3.14 in CI, README updates. No behavior changes.
+- **HMAC-SHA256 signing** with `hmac_key=` on every dump and load function.
+- **`classes=`**: real dataclass, enum and namedtuple instances on load, with defaults for missing fields.
+- **Automatic migrations** when you pass `classes=` and the stored schema version differs.
+- **New types**: `datetime`, `date`, `time`, `timedelta`, `timezone`, `ZoneInfo`, `Decimal`, `UUID`, `Fraction`, `range`, `slice`, `Ellipsis`, `NotImplemented`, `pathlib` paths, `OrderedDict`, `defaultdict` (builtin factories), `Counter`, `deque`, `Enum` members and namedtuples.
+- **Multi-record streams** with `Pickler`/`Unpickler` and repeated `load(f)`.
+- **Safe reader for existing pickle files**: [`load_pickle`, `loads_pickle`, `convert_pickle`](/guide/pickle-compat).
+- **Real exceptions**: `UnsafeTypeError` (a `TypeError`), `DecodeError`, `HMACError`, `SchemaVersionError` (all `ValueError`s).
 
-::: tip Loaded dataclasses are dynamic classes
-`loads` rebuilds dataclass instances as instances of a dynamically created class with the same name and field names, not your original class. `isinstance(obj, User)` is `False`, and `==` against an original `User` is `False`. See [Schema Evolution](/guide/schema-evolution) for how this affects migrations.
+::: tip Behavior changes from 1.3
+Exceptions are now the package's own classes, but they subclass the built-in ones raised before, so `except TypeError` / `except ValueError` still work. `IntEnum` members, `OrderedDict`, `defaultdict(list)` and namedtuples used to raise `TypeError` in `dumps` and now serialize.
 :::
 
 ---
 
 ## Next Steps
 
-- Learn how to evolve data models over time with [Schema Evolution](/guide/schema-evolution).
-- Read [Streaming & PickleBuffer](/guide/streaming-and-buffers) for the `Pickler` / `Unpickler` classes and their current limits.
-- Learn about [Security & Allowlist](/guide/security-and-allowlist).
+- Evolve data models over time with [Schema Evolution](/guide/schema-evolution).
+- Write and read many records with [Streaming & PickleBuffer](/guide/streaming-and-buffers).
+- Lock down untrusted input with [Security & Allowlist](/guide/security-and-allowlist).
+- Read old `.pkl` files safely with [Reading Existing Pickle Files](/guide/pickle-compat).

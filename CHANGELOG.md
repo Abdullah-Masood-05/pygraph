@@ -2,6 +2,29 @@
 
 All notable changes to pysafe-pickle are documented here.
 
+## [1.4.0] - 2026-10-28
+
+### Added
+- HMAC-SHA256 signing: `dumps`/`dump`/`Pickler` take `hmac_key=` and sign the payload; `loads`/`load`/`Unpickler` take `hmac_key=` and verify it (constant-time) before any object is built. A signed payload sets bit 0 of the header flags and appends a 32-byte tag computed over every preceding byte. `hmac_key` accepts any bytes-like object; an empty key raises `ValueError`
+- `HMACError` for a failed verification, a wrong key, a signed payload loaded without a key, and a key given for an unsigned payload (so a stripped signature is detected)
+- New types (tags `0x13`-`0x26`): `datetime.datetime`/`date`/`time`/`timedelta`/`timezone`, `zoneinfo.ZoneInfo`, `decimal.Decimal`, `uuid.UUID`, `fractions.Fraction`, `range`, `slice`, `Ellipsis`, `NotImplemented`, `pathlib` paths, `collections.OrderedDict`, `defaultdict` (builtin factories only), `Counter`, `deque` (with `maxlen`), `Enum` members and namedtuples
+- `classes=` on `loads`, `load` and `Unpickler`: an iterable of classes or a `{name: class}` mapping. Listed dataclasses, enums and namedtuples load as the real classes (`isinstance` works). Dataclasses are created without calling `__init__`/`__post_init__`, missing fields get their defaults, and stored fields the class does not define raise `TypeError`
+- Multi-record streams: repeated `Unpickler.load()` calls return successive records and raise `EOFError` at the end of the stream. `load(file)` leaves a seekable file positioned just after the record it read, so repeated `load` calls work too
+- Safe reader for standard pickle data: `load_pickle`, `loads_pickle` and `convert_pickle` (protocols 0-5). A self-contained opcode interpreter calls only an allowlist of safe constructors (`pysafe_pickle.compat.SAFE_GLOBALS`), never imports a module named in the data, and never calls user `__reduce__`/`__setstate__`/`__init__`. Your own classes are opted in with `classes=`, other trusted globals with `allow=`. Resource limits: input-proportional copy budget and `max_depth`
+- `DecodeError` (a `ValueError`) for corrupt, truncated or invalid payloads
+
+### Changed
+- Exceptions are now raised as the package's own classes: `UnsafeTypeError` (subclass of `TypeError`) for unsupported types and allowlist rejections, `DecodeError`/`HMACError`/`SchemaVersionError` (subclasses of `ValueError`), all subclasses of `PySafePickleError`. Existing `except TypeError` / `except ValueError` clauses keep working
+- With `classes=`, schema migrations now run automatically during `loads` when the stored version and the class's `__pysafe_pickle_version__` are both non-zero and differ
+- `IntEnum`/`StrEnum`/`Flag` and other enum members, `OrderedDict`, `defaultdict(list)` (and other builtin factories), namedtuples and the new stdlib types now serialize instead of raising `TypeError: Unsupported type`. Code that relied on that error to reject them must check types itself
+- The `allowlist` also applies to enum and namedtuple type names, not only dataclasses
+- Loading an enum member without its class in `classes=` raises `UnsafeTypeError`
+- `load(file)` on an empty stream raises `EOFError` (was `ValueError`)
+
+### Fixed
+- `Unpickler.load()` no longer consumes the whole stream as a single record
+- `dumps(hmac_key=...)` no longer raises `NotImplementedError`
+
 ## [1.3.4] - 2026-10-14
 
 ### Added

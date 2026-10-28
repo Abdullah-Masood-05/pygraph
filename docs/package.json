@@ -1,7 +1,7 @@
 {
   "name": "pysafe-pickle-docs",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.4.0",
   "type": "module",
   "scripts": {
     "docs:dev": "bunx vitepress dev",
