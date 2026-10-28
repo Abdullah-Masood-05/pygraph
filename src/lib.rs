@@ -195,24 +195,24 @@ fn _loads_prefix(
 }
 
 #[pyfunction]
-#[pyo3(signature = (obj, file, **kwargs))]
+/// Like `pickle.dump`: writes `dumps(obj, ...)` to `file`. Unknown keyword
+/// arguments raise `TypeError` (a misspelled `hmac_key` must not silently
+/// write an unsigned payload). `fix_imports`/`buffer_callback` are accepted
+/// for pickle compatibility and ignored; `protocol=None` means 5.
+#[pyo3(signature = (obj, file, protocol=None, *, fix_imports=true, buffer_callback=None, schema_version=None, hmac_key=None))]
+#[allow(clippy::too_many_arguments)]
 fn dump(
     py: Python,
     obj: &Bound<'_, PyAny>,
     file: &Bound<'_, PyAny>,
-    kwargs: Option<&Bound<'_, PyDict>>,
+    protocol: Option<u8>,
+    fix_imports: bool,
+    buffer_callback: Option<&Bound<'_, PyAny>>,
+    schema_version: Option<u32>,
+    hmac_key: Option<integrity::HmacKey>,
 ) -> PyResult<()> {
-    let key_obj = match kwargs {
-        Some(kw) => kw.get_item("hmac_key")?,
-        None => None,
-    };
-    let hmac_key: Option<integrity::HmacKey> = match key_obj {
-        Some(k) if !k.is_none() => Some(k.extract()?),
-        _ => None,
-    };
-    let hmac_key = integrity::key_slice(&hmac_key);
-    check_hmac_key(hmac_key)?;
-    let payload = encode(py, obj, hmac_key)?;
+    let _ = (fix_imports, buffer_callback);
+    let payload = dumps(py, obj, protocol.unwrap_or(5), schema_version, hmac_key)?;
     file.call_method1(pyo3::intern!(py, "write"), (payload,))?;
     Ok(())
 }

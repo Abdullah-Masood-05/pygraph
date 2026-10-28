@@ -11,10 +11,11 @@ warnings.warn(
 
 from pysafe_pickle import *  # noqa: F401, F403
 from pysafe_pickle import __version__
-from pysafe_pickle import exceptions, migrations, pickler, _reconstruct
+from pysafe_pickle import exceptions, migrations, pickler, _reconstruct, compat
 
 # Register submodule aliases so `from pygraph.migrations import migrate` works seamlessly
 _sys.modules["pygraph.exceptions"] = exceptions
 _sys.modules["pygraph.migrations"] = migrations
 _sys.modules["pygraph.pickler"] = pickler
 _sys.modules["pygraph._reconstruct"] = _reconstruct
+_sys.modules["pygraph.compat"] = compat

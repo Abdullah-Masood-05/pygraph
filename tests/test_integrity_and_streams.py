@@ -477,3 +477,29 @@ class TestStreams:
     def test_load_empty_file(self):
         with pytest.raises(EOFError):
             psp.load(io.BytesIO())
+
+
+class TestDumpSignature:
+    def test_unknown_keyword_rejected(self):
+        with pytest.raises(TypeError):
+            psp.dump([1], io.BytesIO(), hmac_kye=b"k")
+
+    def test_protocol_checked_like_dumps(self):
+        with pytest.raises(ValueError, match="only protocol 5"):
+            psp.dump([1], io.BytesIO(), protocol=4)
+
+    def test_pickle_compatible_arguments_accepted(self):
+        f = io.BytesIO()
+        psp.dump([1], f, None, fix_imports=False, buffer_callback=None)
+        assert psp.loads(f.getvalue()) == [1]
+
+
+def test_bad_zoneinfo_key_is_decode_error():
+    import zoneinfo
+    from pysafe_pickle.exceptions import DecodeError
+
+    blob = bytearray(psp.dumps(zoneinfo.ZoneInfo("UTC")))
+    i = blob.rindex(b"UTC")
+    blob[i:i + 3] = b"../"
+    with pytest.raises(DecodeError, match="Invalid ZoneInfo key"):
+        psp.loads(bytes(blob))

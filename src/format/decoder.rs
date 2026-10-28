@@ -740,7 +740,7 @@ fn std_ctor(py: Python<'_>, which: StdCtor) -> PyResult<&Bound<'_, PyAny>> {
 
 #[cold]
 fn invalid(msg: impl Into<String>) -> PyErr {
-    pyo3::exceptions::PyValueError::new_err(msg.into())
+    crate::errors::decode_error(msg)
 }
 
 /// Rejects ZoneInfo keys that could address files outside the tz database.

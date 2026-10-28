@@ -7,7 +7,8 @@ pub const MAGIC_LEGACY: &[u8; 4] = b"PYGR";
 pub const MAGIC: &[u8; 4] = MAGIC_WRITE;
 pub const FORMAT_VERSION: u16 = 1;
 pub const SCHEMA_VERSION: u32 = 0;
-// Reserved for future use; suppress dead_code until HMAC/compression land.
+// FLAG_HMAC: payload ends with a 32-byte HMAC-SHA256 tag (see integrity.rs).
+// FLAG_COMPRESSED: reserved, never set.
 #[allow(dead_code)]
 pub const FLAG_HMAC: u8 = 1 << 0;
 #[allow(dead_code)]

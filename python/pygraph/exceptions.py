@@ -4,6 +4,7 @@ from pysafe_pickle.exceptions import (
     UnsafeTypeError,
     SchemaVersionError,
     HMACError,
+    DecodeError,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "UnsafeTypeError",
     "SchemaVersionError",
     "HMACError",
+    "DecodeError",
 ]
