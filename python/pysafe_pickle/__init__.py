@@ -15,6 +15,7 @@ from pysafe_pickle.exceptions import (
     UnsafeTypeError,
     SchemaVersionError,
     HMACError,
+    DecodeError,
 )
 from pysafe_pickle.pickler import Pickler, Unpickler, PickleBuffer
 from pysafe_pickle.migrations import (
@@ -46,4 +47,5 @@ __all__ = [
     "UnsafeTypeError",
     "SchemaVersionError",
     "HMACError",
+    "DecodeError",
 ]

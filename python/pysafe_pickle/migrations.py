@@ -1,6 +1,8 @@
 """Schema evolution decorators and migration registry for pysafe-pickle."""
 from typing import Callable
 
+from pysafe_pickle.exceptions import SchemaVersionError
+
 
 _migration_registry: dict[str, list[tuple[int, int, Callable]]] = {}
 
@@ -53,7 +55,7 @@ def get_migration_chain(type_name: str, from_version: int, to_version: int) -> l
                     best = entry
 
         if best is None:
-            raise ValueError(
+            raise SchemaVersionError(
                 f"No migration path from version {current} to {to_version} "
                 f"for type '{type_name}'"
             )
