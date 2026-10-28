@@ -1,4 +1,4 @@
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Iterable, Mapping
 
 __version__: str
 
@@ -11,11 +11,17 @@ def dumps(
     hmac_key: bytes | None = None,
 ) -> bytes: ...
 def loads(
-    data: bytes | bytearray | memoryview, *, allowlist: set[str] | None = None
+    data: bytes | bytearray | memoryview,
+    *,
+    allowlist: set[str] | None = None,
+    classes: Iterable[type] | Mapping[str, type] | None = None,
 ) -> Any: ...
 def dump(
     obj: Any, file: BinaryIO, **kwargs: Any
 ) -> None: ...
 def load(
-    file: BinaryIO, *, allowlist: set[str] | None = None
+    file: BinaryIO,
+    *,
+    allowlist: set[str] | None = None,
+    classes: Iterable[type] | Mapping[str, type] | None = None,
 ) -> Any: ...

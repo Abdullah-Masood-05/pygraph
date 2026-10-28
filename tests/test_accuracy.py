@@ -410,16 +410,18 @@ class TestTypeFidelity:
     @pytest.mark.parametrize(
         "factory",
         [
-            lambda: enum.IntEnum("Color", "RED GREEN").RED,
+            # Enum members, OrderedDict and defaultdict(<builtin>) are supported
+            # since the stdlib-types work; subclasses / custom factories are not.
+            lambda: type("MyEnumMeta", (enum.EnumMeta,), {}),
             lambda: type("MyStr", (str,), {})("x"),
             lambda: type("MyInt", (int,), {})(1),
             lambda: type("MyList", (list,), {})([1]),
-            lambda: OrderedDict(a=1),
-            lambda: defaultdict(list),
+            lambda: type("MyOD", (OrderedDict,), {})(a=1),
+            lambda: defaultdict(lambda: 0),
             lambda: object(),
             lambda: int,
         ],
-        ids=["IntEnum", "str_subclass", "int_subclass", "list_subclass", "OrderedDict", "defaultdict", "object", "type"],
+        ids=["EnumMeta_subclass", "str_subclass", "int_subclass", "list_subclass", "OrderedDict_subclass", "defaultdict_lambda", "object", "type"],
     )
     def test_subclasses_and_foreign_types_rejected(self, factory):
         with pytest.raises(TypeError, match="Unsupported type"):

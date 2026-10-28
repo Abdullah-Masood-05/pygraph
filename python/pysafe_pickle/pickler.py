@@ -69,6 +69,7 @@ class Unpickler:
         errors: str = "strict",
         buffers: Any = None,
         allowlist: set[str] | None = None,
+        classes: Any = None,
     ):
         self._file = file
         self._fix_imports = fix_imports
@@ -76,9 +77,10 @@ class Unpickler:
         self._errors = errors
         self._buffers = buffers
         self._allowlist = allowlist
+        self._classes = classes
 
     def load(self) -> Any:
         from pysafe_pickle._pysafe_pickle import loads
 
         data = self._file.read()
-        return loads(data, allowlist=self._allowlist)
+        return loads(data, allowlist=self._allowlist, classes=self._classes)

@@ -47,6 +47,7 @@ fn loads_from_slice(
     py: Python<'_>,
     bytes: &[u8],
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let decoded = if bytes.len() >= GIL_RELEASE_THRESHOLD {
         py.allow_threads(|| decoder::decode(bytes))?
@@ -65,7 +66,8 @@ fn loads_from_slice(
         }
     }
 
-    Ok(decoder::reconstruct(py, &decoded)?.unbind())
+    let classes = classes.map(decoder::class_map).transpose()?;
+    Ok(decoder::reconstruct(py, &decoded, classes.as_ref())?.unbind())
 }
 
 /// Decodes any bytes-like object. `bytes` is borrowed directly (immutable);
@@ -76,14 +78,15 @@ fn loads_bytes_like(
     py: Python<'_>,
     data: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
     err_prefix: &str,
 ) -> PyResult<PyObject> {
     if let Ok(b) = data.downcast::<PyBytes>() {
-        return loads_from_slice(py, b.as_bytes(), allowlist);
+        return loads_from_slice(py, b.as_bytes(), allowlist, classes);
     }
     if let Ok(ba) = data.downcast::<PyByteArray>() {
         let owned = ba.to_vec();
-        return loads_from_slice(py, &owned, allowlist);
+        return loads_from_slice(py, &owned, allowlist, classes);
     }
     let copied = PyMemoryView::from(data)
         .and_then(|mv| mv.call_method0("tobytes"))
@@ -99,7 +102,7 @@ fn loads_bytes_like(
             ))
         })?;
     let b = copied.downcast::<PyBytes>()?;
-    loads_from_slice(py, b.as_bytes(), allowlist)
+    loads_from_slice(py, b.as_bytes(), allowlist, classes)
 }
 
 #[pyfunction]
@@ -131,13 +134,14 @@ fn _floor(py: Python<'_>, n: usize, kind: u8) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (data, *, allowlist=None))]
+#[pyo3(signature = (data, *, allowlist=None, classes=None))]
 fn loads(
     py: Python,
     data: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
-    loads_bytes_like(py, data, allowlist, "")
+    loads_bytes_like(py, data, allowlist, classes, "")
 }
 
 #[pyfunction]
@@ -155,15 +159,16 @@ fn dump(
 }
 
 #[pyfunction]
-#[pyo3(signature = (file, *, allowlist=None))]
+#[pyo3(signature = (file, *, allowlist=None, classes=None))]
 fn load(
     py: Python,
     file: &Bound<'_, PyAny>,
     allowlist: Option<&Bound<'_, PySet>>,
+    classes: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let read_method = file.getattr("read")?;
     let data = read_method.call0()?;
-    loads_bytes_like(py, &data, allowlist, "file.read() did not return bytes: ")
+    loads_bytes_like(py, &data, allowlist, classes, "file.read() did not return bytes: ")
 }
 
 #[pymodule]
