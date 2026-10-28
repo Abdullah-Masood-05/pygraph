@@ -498,7 +498,11 @@ def test_bad_zoneinfo_key_is_decode_error():
     import zoneinfo
     from pysafe_pickle.exceptions import DecodeError
 
-    blob = bytearray(psp.dumps(zoneinfo.ZoneInfo("UTC")))
+    try:
+        utc = zoneinfo.ZoneInfo("UTC")
+    except zoneinfo.ZoneInfoNotFoundError:
+        pytest.skip("no IANA time zone database; pip install tzdata")
+    blob = bytearray(psp.dumps(utc))
     i = blob.rindex(b"UTC")
     blob[i:i + 3] = b"../"
     with pytest.raises(DecodeError, match="Invalid ZoneInfo key"):
