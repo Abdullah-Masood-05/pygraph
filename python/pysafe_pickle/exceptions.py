@@ -4,11 +4,19 @@ class PySafePickleError(Exception):
 # Backward compatibility alias
 PyGraphError = PySafePickleError
 
-class UnsafeTypeError(PySafePickleError):
-    """Raised when an unallowlisted type is encountered during deserialization."""
+class UnsafeTypeError(PySafePickleError, TypeError):
+    """Raised when a type cannot be serialized, or is rejected by the allowlist
+    during deserialization. Also a ``TypeError``."""
 
-class SchemaVersionError(PySafePickleError):
-    """Raised when schema version mismatch cannot be resolved."""
+class SchemaVersionError(PySafePickleError, ValueError):
+    """Raised when schema version mismatch cannot be resolved (no migration
+    path). Also a ``ValueError``."""
 
-class HMACError(PySafePickleError):
-    """Raised when HMAC verification fails (data tampering detected)."""
+class HMACError(PySafePickleError, ValueError):
+    """Raised when HMAC verification fails (data tampering detected, wrong key,
+    a signed payload loaded without a key, or a key given for an unsigned
+    payload). Also a ``ValueError``."""
+
+class DecodeError(PySafePickleError, ValueError):
+    """Raised when a payload is corrupt, truncated or otherwise invalid.
+    Also a ``ValueError``."""

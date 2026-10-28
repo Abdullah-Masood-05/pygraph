@@ -79,7 +79,7 @@ impl std::error::Error for DecodeError {}
 
 impl From<DecodeError> for PyErr {
     fn from(err: DecodeError) -> PyErr {
-        pyo3::exceptions::PyValueError::new_err(err.to_string())
+        crate::errors::decode_error(err.to_string())
     }
 }
 
@@ -121,6 +121,8 @@ pub struct DecodedGraph<'a> {
     rec_refs: Vec<u8>,
     /// Number of `String` records per string-table index, saturating at 2.
     str_refs: Vec<u8>,
+    /// Offset just past the last record (bytes of `data` this payload uses).
+    pub end: usize,
 }
 
 impl DecodedGraph<'_> {
@@ -434,6 +436,7 @@ pub fn decode(data: &[u8]) -> Result<DecodedGraph<'_>, DecodeError> {
         recs,
         rec_refs,
         str_refs,
+        end: offset,
     })
 }
 
@@ -648,7 +651,7 @@ fn decode_utf8<'py>(
 }
 
 fn cyclic_immutable(id: usize) -> PyErr {
-    pyo3::exceptions::PyValueError::new_err(format!(
+    crate::errors::decode_error(format!(
         "Cyclic reference involving immutable container at ref_id {} is not supported",
         id
     ))

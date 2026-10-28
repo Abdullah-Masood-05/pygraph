@@ -753,9 +753,9 @@ class TestApiErrors:
     def test_protocol_5_accepted(self):
         assert psp.loads(psp.dumps([1], protocol=5)) == [1]
 
-    def test_hmac_key_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            psp.dumps([1], hmac_key=b"secret")
+    def test_hmac_key_roundtrip(self):
+        blob = psp.dumps([1], hmac_key=b"secret")
+        assert psp.loads(blob, hmac_key=b"secret") == [1]
 
 
 # --- Malformed / hostile payloads ---

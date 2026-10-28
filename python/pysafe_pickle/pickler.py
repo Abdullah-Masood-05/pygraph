@@ -69,6 +69,7 @@ class Unpickler:
         errors: str = "strict",
         buffers: Any = None,
         allowlist: set[str] | None = None,
+        hmac_key: bytes | None = None,
     ):
         self._file = file
         self._fix_imports = fix_imports
@@ -76,9 +77,54 @@ class Unpickler:
         self._errors = errors
         self._buffers = buffers
         self._allowlist = allowlist
+        self._hmac_key = hmac_key
+        # Bytes read from the file but not yet decoded: self._buf[self._pos:].
+        self._buf = b""
+        self._pos = 0
+        self._eof = False
 
     def load(self) -> Any:
-        from pysafe_pickle._pysafe_pickle import loads
+        """Read and return the next record of the stream.
 
-        data = self._file.read()
-        return loads(data, allowlist=self._allowlist)
+        Repeated calls return successive records written by repeated
+        ``Pickler.dump()`` / ``dump()`` calls. The file is read in growing
+        chunks and any bytes read past a record are kept in an internal buffer
+        for the next call, so the file position may be ahead of the last
+        record returned. Raises ``EOFError`` at a clean end of stream and
+        ``DecodeError`` if the stream ends inside a record.
+        """
+        from pysafe_pickle._pysafe_pickle import _loads_prefix
+        from pysafe_pickle.exceptions import DecodeError, HMACError
+
+        chunk_size = _CHUNK_SIZE
+        while True:
+            if self._pos < len(self._buf):
+                try:
+                    obj, used = _loads_prefix(
+                        self._buf,
+                        allowlist=self._allowlist,
+                        hmac_key=self._hmac_key,
+                        offset=self._pos,
+                    )
+                except (DecodeError, HMACError):
+                    # An incomplete record looks corrupt (or, when signed,
+                    # unverifiable) until the rest of it has been read.
+                    if self._eof:
+                        raise
+                else:
+                    self._pos += used
+                    return obj
+            elif self._eof:
+                raise EOFError("Ran out of input")
+
+            chunk = self._file.read(chunk_size)
+            if not chunk:
+                self._eof = True
+                continue
+            self._buf = self._buf[self._pos:] + bytes(chunk)
+            self._pos = 0
+            # Grow geometrically so a large record is re-scanned O(log n) times.
+            chunk_size = max(chunk_size, len(self._buf))
+
+
+_CHUNK_SIZE = 64 * 1024
